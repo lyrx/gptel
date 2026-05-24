@@ -20,9 +20,7 @@
 
 ;;; Commentary:
 
-;; Developer batch tests for heading properties vs. buffer system prompt live in
-;; `scripts/gptel-org-merge-tests.el'; optional ERT suite in submodule `test/'
-;; (https://github.com/karthink/gptel-test).
+;;
 
 ;;; Code:
 (require 'cl-lib)
@@ -42,14 +40,6 @@
 (defvar gptel-max-tokens)
 (defvar gptel--link-type-cache)
 (defvar gptel--preset)
-
-(defvar-local gptel-org--send-system-state nil
-  "Cons (ORG-CANON . BUF-CANON) from the last gptel send in this buffer.
-
-ORG-CANON and BUF-CANON are the `car' of `gptel--parse-directive'
-applied to the heading property GPTEL_SYSTEM and to
-`gptel--system-message', or nil.  Used to decide which side changed
-when the two disagree.")
 
 (defvar org-link-angle-re)
 (defvar org-link-bracket-re)
@@ -500,34 +490,6 @@ Search between BEG and END."
         (and link-ovs (mapc #'delete-overlay link-ovs))))
     `(jit-lock-bounds ,beg . ,end)))
 
-(defun gptel-org--merge-system-message (org-system buf-directive)
-  "Return the system directive to use for one send in Org mode.
-
-ORG-SYSTEM is the GPTEL_SYSTEM entry string (already unescaped) or
-nil.  BUF-DIRECTIVE is `gptel--system-message'.
-
-When both are set but differ, prefer the side that changed since
-the last send (see `gptel-org--send-system-state'); otherwise
-prefer ORG-SYSTEM so inherited heading properties still override a
-stale buffer after moving between headings."
-  (let* ((org-canon (and org-system
-                         (car-safe (gptel--parse-directive org-system))))
-         (buf-canon (car-safe (gptel--parse-directive buf-directive)))
-         (last (or gptel-org--send-system-state '(nil . nil)))
-         (last-org (car last))
-         (last-buf (cdr last)))
-    (prog1
-        (cond
-         ((null org-system) buf-directive)
-         ((null buf-directive) org-system)
-         ((equal org-canon buf-canon) buf-directive)
-         ((and last-org (not (equal org-canon last-org)))
-          org-system)
-         ((and last-buf (not (equal buf-canon last-buf)))
-          buf-directive)
-         (t org-system))
-      (setq gptel-org--send-system-state (cons org-canon buf-canon)))))
-
 (defun gptel-org--send-with-props (send-fun &rest args)
   "Conditionally modify SEND-FUN's calling environment.
 
@@ -536,26 +498,17 @@ configuration, use that for requests instead.  This includes the
 system message, model and provider (backend), among other
 parameters.
 
-For the system message, the heading property GPTEL_SYSTEM and
-`gptel--system-message' are merged so an interactive change in
-either the Org property or the buffer is respected (see
-`gptel-org--merge-system-message').  Other parameters still prefer
-the Org entry when present.
-
 ARGS are the original function call arguments."
   (if (derived-mode-p 'org-mode)
-      (let ((buf-system gptel--system-message))
-        (pcase-let ((`(,o-preset ,o-sys ,o-backend ,o-model ,o-temp ,o-toks ,o-num ,o-tools)
-                     (gptel-org--entry-properties)))
-          (let ((gptel--preset (or o-preset gptel--preset))
-                (gptel--system-message (gptel-org--merge-system-message o-sys buf-system))
-                (gptel-backend (or o-backend gptel-backend))
-                (gptel-model (or o-model gptel-model))
-                (gptel-temperature (or o-temp gptel-temperature))
-                (gptel-max-tokens (or o-toks gptel-max-tokens))
-                (gptel--num-messages-to-send (or o-num gptel--num-messages-to-send))
-                (gptel-tools (or o-tools gptel-tools)))
-            (apply send-fun args))))
+      (pcase-let ((`( ,gptel--preset ,gptel--system-message ,gptel-backend
+                      ,gptel-model ,gptel-temperature ,gptel-max-tokens
+                      ,gptel--num-messages-to-send ,gptel-tools)
+                   (seq-mapn (lambda (a b) (or a b))
+                             (gptel-org--entry-properties)
+                             (list gptel--preset gptel--system-message gptel-backend
+                                   gptel-model gptel-temperature gptel-max-tokens
+                                   gptel--num-messages-to-send gptel-tools))))
+        (apply send-fun args))
     (apply send-fun args)))
 
 (advice-add 'gptel-send :around #'gptel-org--send-with-props)
@@ -605,7 +558,6 @@ ARGS are the original function call arguments."
     (widen)
     (condition-case status
         (progn
-          (setq-local gptel-org--send-system-state nil)
           (when-let* ((bounds (org-entry-get (point-min) "GPTEL_BOUNDS")))
             (gptel--restore-props (read bounds)))
           (pcase-let ((`(,preset ,system ,backend ,model ,temperature ,tokens ,num ,tools)

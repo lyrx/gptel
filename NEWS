@@ -10,15 +10,6 @@
 ** New features and UI changes
 ** Notable bug fixes
 
-- Org: when =GPTEL_SYSTEM= was set on a heading, =gptel-org--send-with-props=
-  always preferred that property over =gptel--system-message=, so a system
-  prompt changed in the menu could be ignored on send.  Properties and the
-  buffer directive are now merged so the side that changed since the last send
-  wins; inherited heading properties still override a stale buffer after
-  moving between headings (see =gptel-org--merge-system-message=).  Batch checks:
-  =scripts/gptel-org-merge-tests.el= and =scripts/run-gptel-org-merge-regression.sh=
-  (the script restores the file from before the merge helper was introduced).
-
 * 0.9.9.5 2026-05-03
 
 ** Breaking changes
