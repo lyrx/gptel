@@ -1,0 +1,266 @@
+#+title: gptel — Bugfix an Upstream (GitHub) schicken
+#+language: de
+
+* Hinweis zu dieser Datei
+
+Diese Anleitung ist für /deine/ lokale Arbeit gedacht.  Sie gehört /nicht/
+in einen Pull Request nach [[https://github.com/karthink/gptel][karthink/gptel]].
+
+Optional aus =git status= ausblenden:
+
+#+begin_src sh
+echo BEITRAG-GITHUB.org >> .git/info/exclude
+#+end_src
+
+* Kurzüberblick
+
+| Was | Wo |
+|-----+----|
+| Upstream-Repository | https://github.com/karthink/gptel |
+| Lizenz | GPL-3.0-or-later (=LICENSE=) |
+| Nutzer-Doku | =README.org= (kein Changelog für kleine Fixes) |
+| Release-Notizen | =NEWS= (=org=-Modus, Abschnitt =0.9.9.6-pre= usw.) |
+| Optionale Testsuite (Submodule) | =test/= → [[https://github.com/karthink/gptel-test][gptel-test]] |
+| ELPA-Tarball ignoriert | =.elpaignore= (=test=, =.github=, =scripts=) |
+
+* Schritt-für-Schritt: Fork, Klon, Branch, PR
+
+** 1. Auf GitHub forken
+
+1. Im Browser bei [[https://github.com/karthink/gptel][karthink/gptel]] einloggen.
+2. =Fork= → Fork unter /deinem/ Account anlegen (ohne unnötige Umbenennung).
+
+** 2. Deinen Fork klonen und =upstream= setzen
+
+#+begin_src sh
+git clone https://github.com/<DEIN-USER>/gptel.git
+cd gptel
+git remote add upstream https://github.com/karthink/gptel.git
+git fetch upstream
+#+end_src
+
+** 3. Branch von aktuellem =upstream/master=
+
+#+begin_src sh
+git checkout -b org-system-prompt-merge upstream/master
+#+end_src
+
+(Branchname frei wählen; kurz und sachlich ist üblich.)
+
+** 4. Änderungen einarbeiten und /einen/ logischen Commit bauen
+
+- Während der Arbeit lieber =git commit --amend= nutzen als viele kleine
+  Commits, /solange/ du noch nicht sauber nach =origin= gepusht hast.
+- Vor dem ersten Push zu deinem Fork: bei Bedarf =git rebase -i
+  upstream/master=, alles in einen Commit squashen.
+
+** 5. Konventionen dieses Projekts (und typische Emacs-Paket-Praxis)
+
+*** Code
+
+- =lexical-binding: t= in neuen =.el=-Dateien (wie im Rest des Repos).
+- Einrückung: Leerzeichen, keine Tabs — siehe =.dir-locals.el=
+  (=indent-tabs-mode= aus).
+- Fließtext in Kommentaren: =sentence-end-double-space= ist /an/
+  (=.dir-locals.el=) — nach Punkt am Satzende in Prosa-Kommentaren zwei
+  Leerzeichen (GNU/Emacs-Konvention).
+- Keine unnötigen Refactorings; Stil an bestehende Dateien anlehnen.
+
+*** Doku / Release
+
+- Sinnvolle /Nutzer-relevante/ Änderungen: kurzer Eintrag in =NEWS= unter der
+  passenden Version (=0.9.9.6-pre= …), nicht jeden Mini-Fix im =README.org=
+  ausbreiten (README ist Handbuch, kein Changelog).
+- Bugfix-Formulierungen in =NEWS= knapp: Symptom, Fix, ggf. betroffene
+  Symbole (=org=-Code mit ==…==).
+
+*** Tests (dieses Repo)
+
+- Batch-Hilfstests und Regressionsskript liegen unter =scripts/= (liegen /nicht/
+  im ELPA-Paket wegen =.elpaignore=).
+- Vor dem Push lokal ausführen (siehe Kommentarkopf in
+  =scripts/gptel-org-merge-tests.el= und =scripts/run-gptel-org-merge-regression.sh=).
+- Die eigentliche ERT-Suite: Submodule =test/= (=gptel-test=) — mit
+  =git submodule update --init --recursive= initialisieren, wenn du sie
+  nutzen willst.
+
+*** Urheberrecht
+
+- Dateien tragen typischerweise =;; Copyright (C) … Karthik Chikmagalur=.
+- Kleine Patches werden oft ohne eigene Copyright-Zeile akzeptiert; bei
+  größeren Beiträgen kläre mit dem Maintainer, ob eine Co-Autoren- oder
+  Copyright-Zeile für dich gewünscht ist (GPL bleibt, aber Urheber werden
+  dokumentiert).
+
+** 6. Mit =upstream= abgleichen (optional, empfohlen)
+
+#+begin_src sh
+git fetch upstream
+git rebase upstream/master
+#+end_src
+
+** 7. Zu /deinem/ Fork pushen
+
+#+begin_src sh
+git push -u origin org-system-prompt-merge
+#+end_src
+
+** 8. Pull Request auf GitHub
+
+1. Auf GitHub in /deinem/ Fork erscheint meist der Hinweis „Compare & pull request“.
+2. Basis: =karthink/gptel=, Branch =master=; compare: dein Feature-Branch.
+3. Titel: kurz, sachlich (oft wie die erste Zeile des Commit-Messages).
+4. Beschreibung:
+   - /Was/ war das Problem, /wie/ ist es gelöst.
+   - Verweis auf Issue: =Fixes #123= oder =See #123=, falls vorhanden.
+   - Erwähnen, dass =NEWS= angepasst ist und welche Tests du gefahren hast.
+
+** 9. Nachbearbeitung
+
+- Review-Kommentare: =git commit --amend= + =git push --force-with-lease= auf
+  /denselben/ Branch (üblich bei PR-Anpassungen).
+- Niemals blind =--force= auf =master= deines Forks, wenn andere darauf
+  aufbauen — =--force-with-lease= ist die sicherere Variante.
+
+* Issue zum Org-Systemprompt-Bug (Vorlage „Bug Report“)
+
+** Vorlage im Projekt
+
+Die Vorlage liegt unter =.github/ISSUE_TEMPLATE/bug-report.yaml= und erscheint
+auf GitHub unter [[https://github.com/karthink/gptel/issues/new?template=bug-report.yaml][New issue → Bug Report]] (nach „Get started“ bei „Bug Report“).
+
+** So veröffentlichst du den Issue
+
+1. Im Browser einloggen und [[https://github.com/karthink/gptel/issues/new/choose][Issues → New issue]] öffnen.
+2. Bei „Bug Report“ auf =Get started= klicken (nicht „Blank issue“).
+3. Oben den =Title= eintragen (siehe Abschnitt „Issue-Titel“ unten).
+4. Die Pflichtfelder der Vorlage ausfüllen; unten =Submit new issue= klicken.
+
+Ohne Schreibrechte am Repo kannst du nur Issues /in deinem Fork/ anlegen —
+für Upstream brauchst du Zugriff auf =karthink/gptel= (öffentlich: jeder
+eingeloggte Nutzer darf normalerweise Issues im Original-Repo eröffnen).
+
+** Entwurf: Felder der Vorlage (copy-paste)
+
+Die GitHub-Vorlage =bug-report.yaml= füllst du mit Klartext bzw. Markdown (GFM:
+Überschriften, Listen, mit Backticks eingefasster Code).  Was in dieser
+=.org=-Datei mit Org-Syntax steht (=GPTEL_SYSTEM=, =[[url]]=, =/kursiv/=) ist zum
+Direktkopieren in die Formularfelder ungeeignet — die Org-Zeichen würden mit
+eingefügt werden.
+
+Deshalb steht der **eigentliche Einfügetext** jeweils in einem
+=#+begin_src markdown=-Block — das ist **normales Markdown**, kein Org-Markup.
+So kopierst du zuverlässig:
+
+1. Nur die Zeilen **zwischen** =#+begin_src markdown= und =#+end_src= markieren
+   (die beiden Grenzzeilen **nicht** mitkopieren) und mit =M-w= in die
+   Zwischenablage legen.
+2. Im Browser in das passende Formularfeld einfügen.
+
+Zuverlässige Alternative in Emacs: Cursor in den Block, =C-c '= (=org-edit-special=) — es öffnet sich ein Puffer nur mit dem Markdown-Inhalt.  Alles markieren, kopieren, mit =C-c C-k= den Spezialpuffer schließen.
+
+Passe Platzhalter in „Additional Context“ an deine Umgebung an.
+
+** Issue-Titel (=Title=-Feld auf GitHub, oberhalb des Formulars)
+
+Die Vorlage hat kein Titel-Feld — den Titel trägst du im obersten Eingabefeld
+ein.  Einfügen wie oben (einzeilig, ohne Anführungszeichen):
+
+#+begin_src markdown
+Org: GPTEL_SYSTEM wins over interactive buffer system message on send
+#+end_src
+
+** Kürzerer Titel (optional)
+
+#+begin_src markdown
+Org: buffer system prompt ignored when GPTEL_SYSTEM is set
+#+end_src
+
+** Checkbox „Please update gptel first …“
+
+Nicht per Copy/Paste ausfüllbar: im Formular die Checkbox /anklicken/, sobald
+du wirklich auf dem letzten Stand getestet hast.
+
+** Backend (Dropdown)
+
+Kein Textfeld — im Formular leer lassen oder =Other= wählen (betrifft kein
+bestimmtes LLM-Backend, nur Org-Konfiguration vor dem Request).
+
+** Formularfeld: Bug Description
+
+#+begin_src markdown
+In Org mode, `gptel-org--send-with-props` merges the heading property `GPTEL_SYSTEM` with buffer settings for the system prompt.  The merge uses `(or org-value buffer-value)` (via `seq-mapn`), so whenever `GPTEL_SYSTEM` is set, the Org property value always wins over `gptel--system-message`.
+
+An interactive change to the buffer system prompt (e.g. from the transient `gptel-menu`) is therefore ignored on send until the property is updated again (e.g. `M-x gptel-org-set-properties`).
+#+end_src
+
+** Formularfeld: Steps to Reproduce
+
+#+begin_src markdown
+1. Open an Org buffer and enable `gptel-mode`.
+2. Move point under a heading and set `GPTEL_SYSTEM` to string **A** (property drawer or `M-x gptel-org-set-properties`).
+3. Change the system prompt via gptel’s menu so `gptel--system-message` becomes string **B**, without editing the property drawer again.
+4. Run `M-x gptel-send` (or equivalent).
+
+**Observed:** the request still uses **A**.  **Expected:** **B** should win when the user last edited the buffer prompt.
+#+end_src
+
+** Formularfeld: Additional Context
+
+Messwerte aus der Entwicklungsumgebung (Emacs-Binary:
+=/home/alex/git/clones/emacs/src/emacs=); bei dir ggf. neu auslesen und den Block
+anpassen.
+
+#+begin_src markdown
+- **Emacs:** GNU Emacs 31.0.50 (build 2, x86_64-pc-linux-gnu, GTK+ Version 3.24.49, cairo version 1.18.4) of 2026-05-12
+- **OS:** Debian GNU/Linux (x86_64-pc-linux-gnu)
+- **gptel:** git clone of [karthink/gptel](https://github.com/karthink/gptel); bug reproduced on upstream `origin/master` at `df08c1a` (before applying a local fix); batch tests via `scripts/run-gptel-org-merge-regression.sh` with the same Emacs binary
+- **Org:** 9.8.1 (from `(require 'org)` / `org-version` in `emacs -Q --batch -l org`)
+- **Note:** reproduces before any HTTP request; not tied to a specific LLM backend or Curl version.
+#+end_src
+
+** Formularfeld: Backtrace
+
+#+begin_src markdown
+No error is signaled; this is a behavior bug only.
+
+If you do see an error with `M-x toggle-debug-on-error`, paste the backtrace here.
+#+end_src
+
+** Formularfeld: Log Information
+
+Optional auf GitHub — oft leer lassen.  Wenn du doch etwas einfügst, nur den
+Blockinhalt wie bei den anderen Feldern kopieren.
+
+#+begin_src markdown
+This bug appears in local merge logic before any HTTP request; `*gptel-log*` is usually unnecessary.
+
+If you still attach something: enable expert commands (`(setq gptel-expert-commands t)`), use a menu dry-run, and paste the snippet that shows the system string in the payload.
+#+end_src
+
+** Issue veröffentlichen (Kurz)
+
+Nach dem Ausfüllen der Formularfelder in GitHub die grüne Schaltfläche
+=Submit new issue= betätigen.  Der Issue ist sofort öffentlich sichtbar (sofern
+das Repository öffentlich ist).  Titel nachträglich oben im Issue per
+=Bearbeiten= änderbar.
+
+* Alternative: Patch per E-Mail
+
+Viele GNU-Projekte nutzen =git send-email=; bei gptel ist der übliche Weg
+GitHub PR.  Wenn du nur einen Patch brauchst:
+
+#+begin_src sh
+git format-patch -1 HEAD --stdout > 0001-mein-fix.patch
+#+end_src
+
+… und den Patch /nur/ senden, wenn der Maintainer das ausdrücklich so
+wünscht.
+
+* Nützliche Links
+
+- [[https://github.com/karthink/gptel][gptel auf GitHub]]
+- [[https://elpa.nongnu.org/nongnu/gptel.html][NonGNU ELPA gptel]]
+- [[https://melpa.org/#/gptel][MELPA gptel]]
+- [[https://www.gnu.org/prep/standards/html_node/Style-of-Change-Logs.html][GNU Coding Standards]] (Hintergrund zu Satzabständen, ChangeLogs — gptel
+  nutzt hier primär =NEWS=)
