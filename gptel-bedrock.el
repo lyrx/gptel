@@ -409,10 +409,46 @@ MAX-ENTRIES is the maximum number of prompts to include."
                       (/= prev-pt (point-min))
                       (goto-char (previous-single-property-change
                                   (point) 'gptel nil (point-min))))
-            (capture-prompt (pcase (get-char-property (point) 'gptel)
-                              ('response "assistant")
-                              ('nil "user"))
-                            (point) prev-pt)
+            ;; Skip blank regions (e.g. response separators) to avoid
+            ;; capturing empty content that JSON-encodes as {}.
+            (unless (save-excursion (skip-syntax-forward " ") (>= (point) prev-pt))
+              (pcase (get-char-property (point) 'gptel)
+                ('response
+                 (capture-prompt "assistant" (point) prev-pt))
+                (`(tool . ,id)
+                 ;; Reconstruct the toolUse (assistant) and toolResult (user)
+                 ;; message pair from the serialized tool call text in the buffer.
+                 (save-excursion
+                   (condition-case nil
+                       (let* ((tool-call (read (current-buffer)))
+                              (name (plist-get tool-call :name))
+                              (args (plist-get tool-call :args))
+                              (result (string-trim
+                                       (buffer-substring-no-properties
+                                        (point) prev-pt))))
+                         ;; user message: toolResult (pushed first, ends up second)
+                         (push (list :role "user"
+                                     :content
+                                     `[(:toolResult (:toolUseId ,id
+                                                     :status "success"
+                                                     :content [(:text ,result)]))])
+                               prompts)
+                         ;; assistant message: toolUse (pushed second, ends up first)
+                         (push (list :role "assistant"
+                                     :content
+                                     `[(:toolUse (:toolUseId ,id
+                                                  :name ,name
+                                                  :input ,args))])
+                               prompts))
+                     ((end-of-file invalid-read-syntax)
+                      (message "gptel: Could not parse tool-call %s on line %s"
+                               id (line-number-at-pos (point)))))))
+                ('ignore)
+                ('nil
+                 (let ((text (gptel--trim-prefixes
+                              (buffer-substring-no-properties (point) prev-pt))))
+                   (unless (or (null text) (string-blank-p text))
+                     (capture-prompt "user" (point) prev-pt))))))
             (setq prev-pt (point))
             (cl-decf max-entries))
         (capture-prompt "user" (point-min) (point-max)))
@@ -467,7 +503,7 @@ The output is a vector of entries in Bedrock API format."
              `(:image (:format ,(cdr format) :source (:bytes ,(gptel--base64-encode media)))))
             ((setq format (assoc mime gptel-bedrock--doc-formats))
              `(:document (:format ,(cdr format)
-                          :name ,(file-name-nondirectory media)
+                          :name ,(file-name-sans-extension (file-name-nondirectory media))
                           :source (:bytes ,(gptel--base64-encode media)))))
             (t (error "Unsupported MIME type %s for AWS Bedrock" mime))))
           (textfile `(:text ,(with-temp-buffer
