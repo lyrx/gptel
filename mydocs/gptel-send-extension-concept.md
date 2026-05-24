@@ -73,28 +73,16 @@ Anforderungen:
 
 ```org
 * System prompt
-:GPTEL_SYSTEM_SUBTREE:
+:GPTEL_SYSTEM_MESSAGE_SUBTREE:
 Dieser Text ist die System-Message.
 Sie kann mehrzeilig sein.
 ```
 
-- Property `:GPTEL_SYSTEM_SUBTREE:` (Wert `t` oder leer) kennzeichnet den
+- Property `:GPTEL_SYSTEM_MESSAGE_SUBTREE:` (Wert `t` oder leer) kennzeichnet den
   Subtree — analog zu bestehenden `GPTEL_*`-Properties.
 - Überschriftentitel frei wählbar; Erkennung nur über die Property.
 - Inhalt = Body unter der Überschrift (ohne Property-Zeile), nach
   `gptel-org--strip-*`-Regeln wie beim normalen Prompt.
-
-### Alternative (falls Property zu unsichtbar)
-
-- Gleiche Property + Tag `:GPTEL_SYSTEM:` am Heading, oder
-- fester Titel `* GPTEL System` + Property (weniger flexibel).
-
-### Nicht empfohlen für Phase 1
-
-- `#+begin_gptel_system` Blöcke ohne Heading: schlechter fit zu „Subtree“,
-  schwieriger „am Dateiende“ zu prüfen.
-- Reiner `:GPTEL_SYSTEM:`-Text in Properties am Dateiende: kein Subtree, kein
-  mehrzeiliger Komfort im Fließtext.
 
 ---
 
@@ -314,19 +302,14 @@ org-Dateien“).
 
 ---
 
-## 10. Offene Entscheidungen (vor Implementierung klären)
+## 10. Entscheidungen 
 
-1. **Topic vs. globaler System-Subtree** — buffer-weit oder nur innerhalb
-   `GPTEL_TOPIC`?
-2. **Cursor im Subtree** — harter Fehler oder Senden als normaler Text?
-3. **Merge mit `gptel--parse-directive`** — Funktionen als System-Message
-   erlauben (`(function …)` im Subtree)?
-4. **Org-Export** — soll der System-Subtree bei normalem Export sichtbar bleiben
-   (ja, als normale Überschrift) oder später `#+OPTIONS:` / exclude tag?
-5. **Ein Subtree pro Datei** — nur der letzte am EOF, oder erster gefundener?
-
-Empfehlung: (1) buffer-weit, (2) Fehler mit Hinweis, (3) ja wie bei
-`GPTEL_SYSTEM`, (4) sichtbar belassen, (5) genau ein Subtree, sonst Warnung.
+1. **Topic vs. globaler System-Subtree** — buffer-weit 
+2. **Cursor im Subtree** — harter Fehler
+3. **Merge mit `gptel--parse-directive`** — ja wie bei `GPTEL_SYSTEM`
+4. **Org-Export** — soll der System-Subtree bei normalem Export sichtbar bleiben?
+   ja
+5. **Ein Subtree pro Datei** erster gefundener, sonst Warnung
 
 ---
 
