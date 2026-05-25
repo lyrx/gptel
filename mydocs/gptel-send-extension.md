@@ -179,10 +179,22 @@ Log** (`L`), oder:
 Lokaler Emacs-Build: `/home/alex/git/clones/emacs/src/emacs`
 
 ```elisp
+(add-to-list 'load-path "/home/alex/git/clones/gptel")
+(require 'gptel-request)
+(require 'gptel)
 (load-file "/home/alex/git/clones/gptel/gptel-org.el")
-;; oder komplett:
-(load-file "/home/alex/git/clones/gptel/gptel.el")
+;; Kontext-Befehle (gptel-add, gptel-add-file, Transient-Menü „Context“):
+(require 'gptel-context)
 ```
+
+Nur `gptel-org.el` per `load-file` reicht für `gptel-send` und die
+System-Subtree-Logik, **nicht** für `gptel-add`: der Befehl lebt in
+`gptel-context.el`. Ohne `(require 'gptel-context)` oder Installation
+über ELPA/`package.el` (Autoloads) ist `gptel-add` undefiniert.
+
+Mit `package.el`/`use-package` normalerweise kein Extra-`require`
+nötig — Autoloads laden `gptel-context` beim ersten Aufruf von
+`gptel-add`.
 
 Kompilieren (Shell):
 
