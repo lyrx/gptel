@@ -96,6 +96,33 @@
      (activate-mark)
      (should-error (gptel-org--cap-prompt-end-for-system-section nil)))))
 
+(ert-deftest gptel-org-system-section-save-deletes-stale-gptel-system ()
+  "Saving with a buffer section removes stale GPTEL_SYSTEM property."
+  (gptel-org-system-section--with-org-buffer
+   (concat ":PROPERTIES:\n:GPTEL_SYSTEM: Old property prompt.\n:END:\n\n"
+           "* Chat\nHi\n\n* System\n"
+           (gptel-org-system-section--section "New section prompt."))
+   (lambda ()
+     (require 'gptel-openai nil t)
+     (setq-local gptel--system-message "Old property prompt."
+                 gptel--preset nil
+                 gptel-backend (or (default-value 'gptel-backend)
+                                   (gptel-make-openai "Test" :key "test")))
+     (goto-char (point-min))
+     (gptel-org-set-properties (point-min) nil)
+     (should (null (org-entry-get (point-min) "GPTEL_SYSTEM" 'selective))))))
+
+(ert-deftest gptel-org-system-section-restore-prefers-section ()
+  "Restoring state uses the buffer section over GPTEL_SYSTEM."
+  (gptel-org-system-section--with-org-buffer
+   (concat ":PROPERTIES:\n:GPTEL_SYSTEM: Old property prompt.\n:END:\n\n"
+           "* Chat\nHi\n\n* System\n"
+           (gptel-org-system-section--section "New section prompt."))
+   (lambda ()
+     (setq buffer-file-name "gptel-org-system-section-test.org")
+     (gptel-org--restore-state)
+     (should (string= "New section prompt." gptel--system-message)))))
+
 (ert-deftest gptel-org-system-section-overrides-heading-property ()
   (gptel-org-system-section--with-org-buffer
    (concat "* Chat\n:GPTEL_SYSTEM: From heading\n\n** User\nHi\n\n* System\n"
@@ -333,6 +360,8 @@ Point inside the section must not raise an error in this path."
     gptel-org-system-section-cursor-inside-errors
     gptel-org-system-section-region-overlap-errors
     gptel-org-system-section-overrides-heading-property
+    gptel-org-system-section-save-deletes-stale-gptel-system
+    gptel-org-system-section-restore-prefers-section
     gptel-org-system-section-last-section-wins
     gptel-org-system-section-nested-outline-ok
     gptel-org-system-section-bounds-cached

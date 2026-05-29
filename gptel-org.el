@@ -903,6 +903,9 @@ should be used (no section or rewrite region overlaps the section)."
                  (format "Could not activate gptel preset `%s' in buffer \"%s\""
                          preset (buffer-name)))))
             (when system (setq-local gptel--system-message system))
+            (when-let* ((section (and gptel-org-use-system-section
+                                      (gptel-org--system-section-message))))
+              (setq-local gptel--system-message section))
             (if backend (setq-local gptel-backend backend)
               (message
                (substitute-command-keys
@@ -951,11 +954,16 @@ send in queries.  (See `gptel--num-messages-to-send' for the last one.)"
     (if (gptel--preset-mismatch-value preset-spec :backend gptel-backend)
         (org-entry-put pt "GPTEL_BACKEND" (gptel-backend-name gptel-backend)))
     ;; System message
-    (let ((parsed (car-safe (gptel--parse-directive gptel--system-message))))
-      (if (gptel--preset-mismatch-value preset-spec :system parsed)
-          (when parsed
-            (org-entry-put pt "GPTEL_SYSTEM" (string-replace "\n" "\\n" parsed)))
-        (org-entry-delete pt "GPTEL_SYSTEM")))
+    (if-let* ((section (and gptel-org-use-system-section
+                           (gptel-org--system-section-message))))
+        ;; The buffer section is authoritative; drop stale GPTEL_SYSTEM.
+        (org-entry-delete pt "GPTEL_SYSTEM")
+      (let ((parsed (car-safe (gptel--parse-directive gptel--system-message))))
+        (if (gptel--preset-mismatch-value preset-spec :system parsed)
+            (when parsed
+              (org-entry-put pt "GPTEL_SYSTEM"
+                             (string-replace "\n" "\\n" parsed)))
+          (org-entry-delete pt "GPTEL_SYSTEM"))))
     ;; Tools
     (let ((tool-names (mapcar #'gptel-tool-name gptel-tools)))
       (if (gptel--preset-mismatch-value preset-spec :tools tool-names)
