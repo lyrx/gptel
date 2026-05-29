@@ -96,6 +96,23 @@
      (activate-mark)
      (should-error (gptel-org--cap-prompt-end-for-system-section nil)))))
 
+(ert-deftest gptel-org-system-section-save-deletes-local-variables-trailer ()
+  "Saving an Org buffer removes stale gptel Local Variables trailers."
+  (gptel-org-system-section--with-org-buffer
+   (concat "* Chat\nHi\n\n* System\n"
+           (gptel-org-system-section--section "Section prompt.")
+           "\n\n;; Local Variables:\n"
+           ";; gptel-model: kimi-k2.6\n"
+           ";; gptel--backend-name: \"Moonshot\"\n"
+           ";; End:\n")
+   (lambda ()
+     (require 'gptel-openai nil t)
+     (setq-local gptel--preset nil
+                 gptel-backend (or (default-value 'gptel-backend)
+                                   (gptel-make-openai "Test" :key "test")))
+     (gptel-org--save-state)
+     (should (null (gptel-org--local-variables-trailer-bounds))))))
+
 (ert-deftest gptel-org-system-section-save-deletes-stale-gptel-system ()
   "Saving with a buffer section removes stale GPTEL_SYSTEM property."
   (gptel-org-system-section--with-org-buffer
@@ -360,6 +377,7 @@ Point inside the section must not raise an error in this path."
     gptel-org-system-section-cursor-inside-errors
     gptel-org-system-section-region-overlap-errors
     gptel-org-system-section-overrides-heading-property
+    gptel-org-system-section-save-deletes-local-variables-trailer
     gptel-org-system-section-save-deletes-stale-gptel-system
     gptel-org-system-section-restore-prefers-section
     gptel-org-system-section-last-section-wins

@@ -245,6 +245,34 @@ This keeps the section at the file end without relying on Org structure."
 
 ;;; Buffer system-message section (plain-text begin/end markers; see defcustoms above)
 
+(defun gptel-org--local-variables-trailer-bounds ()
+  "Return (START . END) of a trailing Local Variables block, or nil."
+  (save-restriction
+    (widen)
+    (save-excursion
+      (goto-char (point-max))
+      (skip-chars-backward " \t\n\r")
+      (when (re-search-backward "^;;\\s-*End:\\s-*$" nil t)
+        (let ((end (line-end-position)))
+          (when (re-search-backward "^;;\\s-*Local Variables:\\s-*$" nil t)
+            (cons (match-beginning 0) end)))))))
+
+(defun gptel-org--delete-gptel-local-variables-trailer ()
+  "Delete a trailing file-local-variables block holding gptel state.
+
+Org buffers persist gptel configuration in properties and optional
+system-message sections; a leftover Local Variables trailer from
+non-Org saves is stale and can break `find-file' when combined with
+`org-mode-hook' hooks that enable `gptel-mode'."
+  (when-let* ((bounds (gptel-org--local-variables-trailer-bounds)))
+    (let ((text (buffer-substring-no-properties (car bounds) (cdr bounds))))
+      (when (string-match-p "gptel" text)
+        (delete-region (car bounds) (cdr bounds))
+        (goto-char (car bounds))
+        (when (and (bolp) (not (bobp))) (delete-char -1))
+        (setq gptel-org--system-section-cache nil)
+        t))))
+
 (defun gptel-org--only-whitespace-after-p (pos)
   "Return non-nil if POS is followed only by whitespace until `point-max'."
   (save-excursion
@@ -1006,6 +1034,7 @@ send in queries.  (See `gptel--num-messages-to-send' for the last one.)"
                  (when (and (not (= (marker-position offset-marker) offset))
                             (> attempts 0))
                    (funcall write-bounds (1- attempts)))))))
+     (gptel-org--delete-gptel-local-variables-trailer)))
      (funcall write-bounds 6))))
 
 
