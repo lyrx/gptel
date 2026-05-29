@@ -53,19 +53,10 @@
 (declare-function gptel-backend-name "gptel-request")
 (declare-function gptel--parse-buffer "gptel-request")
 (declare-function gptel--parse-directive "gptel-request")
-(declare-function gptel--log "gptel-request")
 (declare-function gptel--with-buffer-copy "gptel-request")
 (declare-function gptel--file-binary-p "gptel-request")
 (declare-function gptel--get-buffer-bounds "gptel")
 (declare-function gptel--restore-props "gptel")
-(declare-function gptel--suffix-rewrite "gptel-rewrite")
-(defvar gptel--rewrite-directive)
-(defvar gptel-org--rewrite-merged-system nil
-  "Merged system message for the current `gptel--suffix-rewrite' request.")
-(defvar gptel-org--in-rewrite nil
-  "Non-nil while a `gptel--suffix-rewrite' request is being assembled.
-Tells `gptel-org--request-with-system-section' to leave the explicit rewrite
-directive untouched instead of reapplying the buffer system section.")
 (declare-function org-entry-get "org")
 (declare-function org-entry-put "org")
 (declare-function org-with-wide-buffer "org-macs")
@@ -75,11 +66,6 @@ directive untouched instead of reapplying the buffer system section.")
 (declare-function org-at-heading-p "org")
 (declare-function org-get-heading "org")
 (declare-function org-at-heading-p "org")
-(declare-function org-map-entries "org")
-(declare-function org-back-to-heading "org")
-(declare-function org-end-of-subtree "org")
-(declare-function org-element-at-point "org-element")
-(declare-function org-element-property "org-element")
 
 ;; Bundle `org-element-lineage-map' if it's not available (for Org 9.67 or older)
 (eval-and-compile
@@ -208,248 +194,8 @@ on a line by themselves, separated from surrounding text."
   (concat "\\(?:" org-link-bracket-re "\\|" org-link-angle-re "\\)")
   "Link regex for `gptel-mode' in Org mode.")
 
-(defcustom gptel-org-use-system-section t
-  "When non-nil, use a delimited system-message section in the buffer.
-
-The section is found by plain-text search for begin/end marker lines, not Org
-structure; see `gptel-org-system-section-property' and
-`gptel-org-system-section-end-property'."
-  :group 'gptel
-  :type 'boolean)
-
-(defcustom gptel-org-system-section-property "GPTEL_SYSTEM_MESSAGE"
-  "Marker name for the start of the system-message section.
-
-Matched at line beginning as an Org property (`:NAME:') or after a comment
-prefix (`#', `;', `;;', `%'); see `gptel-org--system-section-marker-regexp'."
-  :group 'gptel
-  :type 'string)
-
-(defcustom gptel-org-system-section-end-property "GPTEL_SYSTEM_MESSAGE_END"
-  "Marker name for the end of the system-message section.
-
-Same line syntax as `gptel-org-system-section-property'.  Text between the
-begin and end marker lines is the system message; the marker lines themselves
-are excluded."
-  :group 'gptel
-  :type 'string)
-
-(defcustom gptel-org-require-system-section-at-eof t
-  "When non-nil, ignore a system section with non-whitespace after the end marker.
-
-Only lines after the end marker line up to `point-max' may be whitespace.
-This keeps the section at the file end without relying on Org structure."
-  :group 'gptel
-  :type 'boolean)
-
-
-;;; Buffer system-message section (plain-text begin/end markers; see defcustoms above)
-
-(defun gptel-org--local-variables-trailer-bounds ()
-  "Return (START . END) of a trailing Local Variables block, or nil."
-  (save-restriction
-    (widen)
-    (save-excursion
-      (goto-char (point-max))
-      (skip-chars-backward " \t\n\r")
-      (when (re-search-backward "^;;\\s-*End:\\s-*$" nil t)
-        (let ((end (line-end-position)))
-          (when (re-search-backward "^;;\\s-*Local Variables:\\s-*$" nil t)
-            (cons (match-beginning 0) end)))))))
-
-(defun gptel-org--delete-gptel-local-variables-trailer ()
-  "Delete a trailing file-local-variables block holding gptel state.
-
-Org buffers persist gptel configuration in properties and optional
-system-message sections; a leftover Local Variables trailer from
-non-Org saves is stale and can break `find-file' when combined with
-`org-mode-hook' hooks that enable `gptel-mode'."
-  (when-let* ((bounds (gptel-org--local-variables-trailer-bounds)))
-    (let ((text (buffer-substring-no-properties (car bounds) (cdr bounds))))
-      (when (string-match-p "gptel" text)
-        (delete-region (car bounds) (cdr bounds))
-        (goto-char (car bounds))
-        (when (and (bolp) (not (bobp))) (delete-char -1))
-        (setq gptel-org--system-section-cache nil)
-        t))))
-
-(defun gptel-org--only-whitespace-after-p (pos)
-  "Return non-nil if POS is followed only by whitespace until `point-max'."
-  (save-excursion
-    (goto-char pos)
-    (skip-chars-forward " \t\n\r")
-    (= (point) (point-max))))
-
-(defun gptel-org--system-section-at-file-end-p (pos)
-  "Non-nil if POS is followed only by whitespace or a `Local Variables' trailer."
-  (save-excursion
-    (goto-char pos)
-    (skip-chars-forward " \t\n\r")
-    (cond
-     ((= (point) (point-max)) t)
-     ((looking-at-p ";;\\s-*Local Variables:")
-      (goto-char (point-max))
-      (when (re-search-backward "^;; End:" nil t)
-        (goto-char (match-end 0))
-        (skip-chars-forward " \t\n\r")
-        (= (point) (point-max))))
-     (t nil))))
-
-(defvar-local gptel-org--system-section-cache nil
-  "Cache for `gptel-org--system-section-bounds': (BOUNDS MODIFIED-TICK).")
-
-(defconst gptel-org--system-section-marker-line-fmt
-  "^\\(?:\\(?:;;\\|[:;#%%]\\)\\s-*%s\\b\\|:%s:\\s-*\\)"
-  "Line template for `gptel-org--system-section-marker-regexp'.
-Org :MARKER: or comment prefix (# ; ;; %).  Plain-text only.")
-
-(defun gptel-org--system-section-marker-regexp (marker)
-  "Return a regexp for a line marking MARKER.
-See `gptel-org--system-section-marker-line-fmt'."
-  (let ((q (regexp-quote marker)))
-    (format gptel-org--system-section-marker-line-fmt q q)))
-
-(defun gptel-org--system-section-line-end (pos)
-  "Return position after the line starting at POS."
-  (save-excursion (goto-char pos) (end-of-line 1) (point)))
-
-(defun gptel-org--system-section-search-marker (marker &optional limit)
-  "Search backward from point for MARKER line; return match-beginning or nil."
-  (when (re-search-backward (gptel-org--system-section-marker-regexp marker)
-                            limit t)
-    (match-beginning 0)))
-
-(defun gptel-org--system-section-warn-ignore (message)
-  "Display MESSAGE as gptel warning and return nil."
-  (progn (display-warning 'gptel message :warning) nil))
-
-(defun gptel-org--system-section-content-bounds (section-bounds)
-  "Return (TEXT-BEG . TEXT-END) between marker lines in SECTION-BOUNDS."
-  (cons (gptel-org--system-section-line-end (car section-bounds))
-        (save-excursion
-          (goto-char (cdr section-bounds))
-          (beginning-of-line 1)
-          (point))))
-
-(defun gptel-org--point-in-system-section-p (pos bounds)
-  "Non-nil if POS lies inside system section BOUNDS (marker lines included)."
-  (and bounds (>= pos (car bounds)) (< pos (cdr bounds))))
-
-(defun gptel-org--system-section-bounds--find ()
-  "Find (BEG . END) of the last begin/end marker pair; END is end of end line."
-  (save-excursion
-    (save-restriction (widen)
-      (goto-char (point-max))
-      (when-let* ((end-beg (gptel-org--system-section-search-marker
-                            gptel-org-system-section-end-property))
-                  (end-end (gptel-org--system-section-line-end end-beg))
-                  (_ (or (not gptel-org-require-system-section-at-eof)
-                         (gptel-org--system-section-at-file-end-p end-end)
-                         (gptel-org--system-section-warn-ignore
-                          "System-message section has text after the end marker; ignoring")))
-                  (beg-beg (progn (goto-char end-beg)
-                                  (gptel-org--system-section-search-marker
-                                   gptel-org-system-section-property))))
-        (if (>= beg-beg end-beg)
-            (gptel-org--system-section-warn-ignore
-             "System-message begin marker is not before end marker; ignoring")
-          (cons beg-beg end-end))))))
-
-(defun gptel-org--system-section-bounds ()
-  "Return (BEG . END) of the buffer system-message section, or nil.
-
-Searches backward from `point-max' for the last end marker, then the last begin
-marker before it.  Results are cached until the buffer is modified."
-  (when gptel-org-use-system-section
-    (let ((tick (buffer-modified-tick)))
-      (if (and gptel-org--system-section-cache
-               (eq (cadr gptel-org--system-section-cache) tick))
-          (car gptel-org--system-section-cache)
-        (let ((bounds (gptel-org--system-section-bounds--find)))
-          (setq gptel-org--system-section-cache (list bounds tick))
-          bounds)))))
-
-(defun gptel-org--system-section-message (&optional bounds)
-  "Return the system-message text for system section BOUNDS."
-  (setq bounds (or bounds (gptel-org--system-section-bounds)))
-  (when bounds
-    (pcase-let ((`(,text-beg . ,text-end)
-                 (gptel-org--system-section-content-bounds bounds))
-                (org-buf (current-buffer)))
-      (gptel--with-buffer-copy org-buf text-beg text-end
-        (when-let* ((gptel-org-ignore-elements
-                     (buffer-local-value 'gptel-org-ignore-elements org-buf)))
-          (gptel-org--strip-elements))
-        (gptel-org--strip-block-headers)
-        (string-trim (buffer-string))))))
-
-(defun gptel-org--bounds-overlap-p (a-beg a-end b-beg b-end)
-  "Non-nil if ranges [A-BEG,A-END) and [B-BEG,B-END) overlap."
-  (and (< a-beg b-end) (> a-end b-beg)))
-
-(defun gptel-org--rewrite-target-bounds ()
-  "Return (BEG . END) for the text `gptel--suffix-rewrite' will rewrite.
-
-When continuing an existing rewrite, use the rewrite overlay bounds and
-ignore any unrelated active region (e.g. from Isearch)."
-  (if-let* ((ov (cdr-safe (get-char-property-and-overlay (point) 'gptel-rewrite))))
-      (cons (overlay-start ov) (overlay-end ov))
-    (when (use-region-p)
-      (let ((rb (region-beginning))
-            (re (region-end)))
-        (when (< rb re)
-          (cons rb re))))))
-
-(defun gptel-org--use-section-system-message (text)
-  "Set `gptel--system-message' to section TEXT, log it, and return t."
-  (setq gptel--system-message text)
-  (message "gptel: System message from buffer section (%d chars)" (length text))
-  (when gptel-log-level
-    (gptel--log (format "System message from buffer section in %s:\n%s"
-                        (buffer-name (current-buffer)) text)
-                "system-section" t))
-  t)
-
-(defun gptel-org--apply-buffer-system-message ()
-  "If this buffer has a system-message section, set `gptel--system-message'.
-
-Signal an error if point is inside the section.  Overlap with a rewrite
-region is handled separately in `gptel-org--rewrite-request-system'; for
-`gptel-send' the prompt end is capped in
-`gptel-org--cap-prompt-end-for-system-section'.  Return t when the section
-was used, nil otherwise."
-  (when-let* ((bounds (gptel-org--system-section-bounds)))
-    (if (gptel-org--point-in-system-section-p (point) bounds)
-        (user-error
-         "Cursor is inside the system-message section; move above it")
-      (gptel-org--use-section-system-message
-       (gptel-org--system-section-message bounds)))))
-
-(defun gptel-org--system-section-message-for-send ()
-  "Return the buffer system-message section text when one is defined.
-
-Signal an error if point is inside the section.  For use in tests."
-  (when (gptel-org--apply-buffer-system-message)
-    gptel--system-message))
-
-(defun gptel-org--cap-prompt-end-for-system-section (prompt-end)
-  "Adjust PROMPT-END so a trailing system-message section is not sent."
-  (when-let* ((bounds (gptel-org--system-section-bounds)))
-    (when (use-region-p)
-      (unless (or (>= (region-beginning) (cdr bounds))
-                  (<= (region-end) (car bounds)))
-        (user-error "Region overlaps system-message section")))
-    (let ((pt (or prompt-end (point))))
-      (when (gptel-org--point-in-system-section-p pt bounds)
-        (user-error
-         "Cursor is inside the system-message section; move above it"))
-      (when (< pt (car bounds))
-        (setq prompt-end (min pt (car bounds))))))
-  prompt-end)
-
 
 ;;; Setting context and creating queries
-
 (defun gptel-org--get-topic-start ()
   "If a conversation topic is set, return it."
   (when (org-entry-get (point) "GPTEL_TOPIC" 'inherit)
@@ -489,7 +235,6 @@ depend on the value of `gptel-org-branching-context', which see."
   (when (use-region-p)
     (narrow-to-region (region-beginning) (region-end))
     (setq prompt-end (point-max)))
-  (setq prompt-end (gptel-org--cap-prompt-end-for-system-section prompt-end))
   (goto-char (or prompt-end (setq prompt-end (point))))
   (let ((topic-start (gptel-org--get-topic-start)))
     (when topic-start
@@ -745,35 +490,6 @@ Search between BEG and END."
         (and link-ovs (mapc #'delete-overlay link-ovs))))
     `(jit-lock-bounds ,beg . ,end)))
 
-(defvar-local gptel-org--send-system-state nil
-  "Cache for `gptel-org--merge-system-message': (ORG-CANON . BUF-CANON).")
-
-(defun gptel-org--merge-system-message (org-system buf-directive)
-  "Return the system directive to use for one send in Org mode.
-
-ORG-SYSTEM is the GPTEL_SYSTEM entry string (already unescaped) or nil.
-BUF-DIRECTIVE is `gptel--system-message'.
-
-When both are set but differ, prefer the side that changed since the last
-send (`gptel-org--send-system-state'); otherwise prefer ORG-SYSTEM."
-  (let* ((org-canon (and org-system
-                         (car-safe (gptel--parse-directive org-system))))
-         (buf-canon (car-safe (gptel--parse-directive buf-directive)))
-         (last (or gptel-org--send-system-state '(nil . nil)))
-         (last-org (car last))
-         (last-buf (cdr last)))
-    (prog1
-        (cond
-         ((null org-system) buf-directive)
-         ((null buf-directive) org-system)
-         ((equal org-canon buf-canon) buf-directive)
-         ((and last-org (not (equal org-canon last-org)))
-          org-system)
-         ((and last-buf (not (equal buf-canon last-buf)))
-          buf-directive)
-         (t org-system))
-      (setq gptel-org--send-system-state (cons org-canon buf-canon)))))
-
 (defun gptel-org--send-with-props (send-fun &rest args)
   "Conditionally modify SEND-FUN's calling environment.
 
@@ -782,101 +498,26 @@ configuration, use that for requests instead.  This includes the
 system message, model and provider (backend), among other
 parameters.
 
-When a buffer system-message section is present, it takes precedence
-over `GPTEL_SYSTEM' and over `gptel-org--merge-system-message'.
-Otherwise the heading property and buffer prompt are merged via
-`gptel-org--merge-system-message'.
-
 ARGS are the original function call arguments."
   (if (derived-mode-p 'org-mode)
-      (let* ((buf-system gptel--system-message)
-             (from-section (gptel-org--apply-buffer-system-message)))
-        (pcase-let ((`( ,prop-preset ,prop-system ,prop-backend ,prop-model
-                        ,prop-temp ,prop-tokens ,prop-num ,prop-tools)
-                     (gptel-org--entry-properties)))
-          (setq gptel--preset (or prop-preset gptel--preset)
-                gptel-backend (or prop-backend gptel-backend)
-                gptel-model (or prop-model gptel-model)
-                gptel-temperature (or prop-temp gptel-temperature)
-                gptel-max-tokens (or prop-tokens gptel-max-tokens)
-                gptel--num-messages-to-send (or prop-num gptel--num-messages-to-send)
-                gptel-tools (or prop-tools gptel-tools))
-          (unless from-section
-            (setq gptel--system-message
-                  (gptel-org--merge-system-message prop-system buf-system)))
-          (apply send-fun args)))
+      (pcase-let ((`( ,gptel--preset ,gptel--system-message ,gptel-backend
+                      ,gptel-model ,gptel-temperature ,gptel-max-tokens
+                      ,gptel--num-messages-to-send ,gptel-tools)
+                   (seq-mapn (lambda (a b) (or a b))
+                             (gptel-org--entry-properties)
+                             (list gptel--preset gptel--system-message gptel-backend
+                                   gptel-model gptel-temperature gptel-max-tokens
+                                   gptel--num-messages-to-send gptel-tools))))
+        (apply send-fun args))
     (apply send-fun args)))
-
-(defun gptel-org--system-message-with-rewrite-directive (rewrite-directive
-                                                         &optional section-text)
-  "Merge SECTION-TEXT or buffer system message with REWRITE-DIRECTIVE.
-SECTION-TEXT defaults to `gptel--system-message'.  Used for `gptel-rewrite'."
-  (let ((buffer-msg (or section-text
-                        (car (gptel--parse-directive gptel--system-message 'raw))))
-        (rewrite-msg (car (gptel--parse-directive rewrite-directive 'raw))))
-    (cond
-     ((and buffer-msg rewrite-msg (not (string-empty-p buffer-msg)))
-      (concat buffer-msg "\n\n" rewrite-msg))
-     (t (or buffer-msg rewrite-msg)))))
-
-(defun gptel-org--system-section-usable-for-rewrite-p (bounds &optional target-bounds)
-  "Non-nil when system section BOUNDS may be used for `gptel-rewrite'.
-TARGET-BOUNDS is (BEG . END) of the rewrite region, or nil."
-  (and bounds
-       (not (and target-bounds
-                 (pcase-let ((`(,tbeg . ,tend) target-bounds))
-                   (gptel-org--bounds-overlap-p tbeg tend (car bounds) (cdr bounds)))))
-       (not (gptel-org--point-in-system-section-p (point) bounds))))
-
-(defun gptel-org--rewrite-request-system (&optional announce)
-  "Return the :system value for `gptel-rewrite' in the current Org buffer.
-
-When ANNOUNCE is non-nil, set `gptel--system-message' from the section and
-show the usual log message.  Return nil when only `gptel--rewrite-directive'
-should be used (no section or rewrite region overlaps the section)."
-  (when (and gptel-org-use-system-section (derived-mode-p 'org-mode))
-    (when-let* ((bounds (gptel-org--system-section-bounds))
-                (_ (gptel-org--system-section-usable-for-rewrite-p
-                    bounds (gptel-org--rewrite-target-bounds)))
-                (section (gptel-org--system-section-message bounds)))
-      (when announce
-        (gptel-org--use-section-system-message section))
-      (gptel-org--system-message-with-rewrite-directive
-       gptel--rewrite-directive section))))
-
-(defun gptel-org--rewrite-system-for-display ()
-  "System message to show in the `gptel-rewrite' transient (preview only)."
-  (or (gptel-org--rewrite-request-system)
-      gptel--rewrite-directive))
-
-(defun gptel-org--suffix-rewrite-with-system-section (orig &optional rewrite-message dry-run)
-  "Attach buffer system section to the upcoming `gptel--suffix-rewrite' request."
-  (let ((gptel-org--in-rewrite t))
-    (when-let* ((system (gptel-org--rewrite-request-system t)))
-      (setq gptel-org--rewrite-merged-system system))
-    (unwind-protect
-        (apply orig rewrite-message dry-run)
-      (setq gptel-org--rewrite-merged-system nil))))
-
-(defun gptel-org--request-with-system-section (orig &optional prompt &rest args)
-  "Apply system-message section when calling `gptel-request' in Org."
-  (cond
-   (gptel-org--rewrite-merged-system
-    (apply orig prompt
-           (plist-put args :system gptel-org--rewrite-merged-system)))
-   ;; During a rewrite without a usable section, keep the explicit :system
-   ;; directive rather than reapplying (and possibly erroring on) the section.
-   (gptel-org--in-rewrite
-    (apply orig prompt args))
-   ((derived-mode-p 'org-mode)
-    (gptel-org--apply-buffer-system-message)
-    (apply orig prompt args))
-   (t (apply orig prompt args))))
 
 (advice-add 'gptel-send :around #'gptel-org--send-with-props)
 (advice-add 'gptel--suffix-send :around #'gptel-org--send-with-props)
-(advice-add 'gptel--suffix-rewrite :around #'gptel-org--suffix-rewrite-with-system-section)
-(advice-add 'gptel-request :around #'gptel-org--request-with-system-section)
+
+;; ;; NOTE: Basic uses in org-mode are covered by advising gptel-send and
+;; ;; gptel--suffix-send.  For custom commands it might be necessary to advise
+;; ;; gptel-request instead.
+;; (advice-add 'gptel-request :around #'gptel-org--send-with-props)
 
 
 ;;; Saving and restoring state
@@ -931,9 +572,6 @@ should be used (no section or rewrite region overlaps the section)."
                  (format "Could not activate gptel preset `%s' in buffer \"%s\""
                          preset (buffer-name)))))
             (when system (setq-local gptel--system-message system))
-            (when-let* ((section (and gptel-org-use-system-section
-                                      (gptel-org--system-section-message))))
-              (setq-local gptel--system-message section))
             (if backend (setq-local gptel-backend backend)
               (message
                (substitute-command-keys
@@ -982,16 +620,11 @@ send in queries.  (See `gptel--num-messages-to-send' for the last one.)"
     (if (gptel--preset-mismatch-value preset-spec :backend gptel-backend)
         (org-entry-put pt "GPTEL_BACKEND" (gptel-backend-name gptel-backend)))
     ;; System message
-    (if-let* ((section (and gptel-org-use-system-section
-                           (gptel-org--system-section-message))))
-        ;; The buffer section is authoritative; drop stale GPTEL_SYSTEM.
-        (org-entry-delete pt "GPTEL_SYSTEM")
-      (let ((parsed (car-safe (gptel--parse-directive gptel--system-message))))
-        (if (gptel--preset-mismatch-value preset-spec :system parsed)
-            (when parsed
-              (org-entry-put pt "GPTEL_SYSTEM"
-                             (string-replace "\n" "\\n" parsed)))
-          (org-entry-delete pt "GPTEL_SYSTEM"))))
+    (let ((parsed (car-safe (gptel--parse-directive gptel--system-message))))
+      (if (gptel--preset-mismatch-value preset-spec :system parsed)
+          (when parsed
+            (org-entry-put pt "GPTEL_SYSTEM" (string-replace "\n" "\\n" parsed)))
+        (org-entry-delete pt "GPTEL_SYSTEM")))
     ;; Tools
     (let ((tool-names (mapcar #'gptel-tool-name gptel-tools)))
       (if (gptel--preset-mismatch-value preset-spec :tools tool-names)
@@ -1034,7 +667,6 @@ send in queries.  (See `gptel--num-messages-to-send' for the last one.)"
                  (when (and (not (= (marker-position offset-marker) offset))
                             (> attempts 0))
                    (funcall write-bounds (1- attempts)))))))
-     (gptel-org--delete-gptel-local-variables-trailer)))
      (funcall write-bounds 6))))
 
 
