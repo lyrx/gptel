@@ -1,5 +1,11 @@
 # Konzept: System-Message per Subtree am Dateiende (gptel-send)
 
+> **Hinweis:** Maßgeblich für die **Implementierung** ist
+> `mydocs/gptel-send-extension.md` (Begin/End-Marker `GPTEL_SYSTEM_MESSAGE` /
+> `GPTEL_SYSTEM_MESSAGE_END`, plain-text, keine Org-Baumlogik). Dieses
+> Konzept-Dokument enthält historische Entwürfe; Abschnitte ohne Hinweis können
+> veraltet sein.
+
 Ausgangspunkt: `mydocs/gptel-send-extension-prompt.md`.  
 Ziel ist eine Erweiterung von `gptel-send`, zuerst für Org-Dateien, später
 erweiterbar auf andere Formate (z. B. Emacs-Lisp).
@@ -54,7 +60,7 @@ Konfiguration mit.
 4. Buffer-lokales `gptel--system-message` / Preset.
 
 Konflikte zwischen (2) und (3) sollten dokumentiert und per User-Option
-steuerbar sein (`gptel-org-system-subtree-priority` o. ä.).
+steuerbar sein (`gptel-org-system-section-priority` o. ä.).
 
 ---
 
@@ -73,40 +79,34 @@ Anforderungen:
 
 ```org
 * System prompt
-:GPTEL_SYSTEM_MESSAGE_SUBTREE:
+:GPTEL_SYSTEM_MESSAGE: t
 Dieser Text ist die System-Message.
-Sie kann mehrzeilig sein.
+:GPTEL_SYSTEM_MESSAGE_END: t
 ```
 
-- Property `:GPTEL_SYSTEM_MESSAGE_SUBTREE:` (Wert `t` oder leer) kennzeichnet den
-  Subtree — analog zu bestehenden `GPTEL_*`-Properties.
-- Überschriftentitel frei wählbar; Erkennung nur über die Property.
-- Inhalt = Body unter der Überschrift (ohne Property-Zeile), nach
-  `gptel-org--strip-*`-Regeln wie beim normalen Prompt.
+- **Implementiert:** Begin/End als Zeilenmarker (Org-Property oder
+  Kommentarpräfix); Inhalt **zwischen** den Zeilen; siehe
+  `gptel-send-extension.md`.
+- Überschrift darüber ist optional und gehört nicht zum System-Text.
 
 ---
 
 ## 4. Erkennung und Grenzen
 
-### 4.1 Subtree finden
-
-Neue Funktion (Arbeitsname):
+### 4.1 Section finden (implementiert)
 
 ```elisp
-(gptel-org--system-subtree-bounds)
-;; => (BEG . END) oder nil
+(gptel-org--system-section-bounds)
+;; => (BEG . END) oder nil   ; BEG/END = Marker-Zeilen
 ```
 
-Algorithmus:
+Algorithmus (plain-text, kein `org-map-entries`):
 
 1. `widen`, `goto-char (point-max)`.
-2. Vom Dateiende rückwärts: letzte Überschrift mit Property
-   `GPTEL_SYSTEM_SUBTREE` (nicht `inherit` nötig — nur explizit am Heading).
-3. `BEG` = `org-entry-begin`, `END` = Subtree-Ende (nächste Heading auf
-   gleicher Ebene oder `point-max`).
-4. Prüfung **„am Dateiende“**: Whitespace nach `END` ignorieren; danach darf
-   nichts Substantielles folgen (keine weitere Überschrift, kein Text außer
-   Leerzeilen). Sonst: Warnung und Subtree ignorieren (oder nur warnen — Option).
+2. Rückwärts: letzte Zeile mit End-Marker `GPTEL_SYSTEM_MESSAGE_END`.
+3. Rückwärts: letzte Zeile mit Begin-Marker `GPTEL_SYSTEM_MESSAGE` davor.
+4. Optional EOF: nur Leerzeichen nach der End-Marker-Zeile
+   (`gptel-org-require-system-section-at-eof`).
 
 ### 4.2 Prompt-Ende begrenzen
 
@@ -130,7 +130,7 @@ effective-end = prompt-end                      sonst (Cursor im/im nach Subtree
 Neue Funktion:
 
 ```elisp
-(gptel-org--system-subtree-message bounds)
+(gptel-org--system-section-message bounds)
 ;; => String oder nil
 ```
 
@@ -241,15 +241,16 @@ Org-Property-Muster lässt sich nicht 1:1 übertragen; die **generische API**
 
 | Option | Typ | Default | Zweck |
 |--------|-----|---------|--------|
-| `gptel-org-use-system-subtree` | boolean | `t` | Feature ein/aus |
-| `gptel-org-system-subtree-property` | string | `"GPTEL_SYSTEM_SUBTREE"` | Property-Name |
-| `gptel-org-require-system-subtree-at-eof` | boolean | `t` | Strikte EOF-Prüfung |
-| `gptel-org-system-subtree-priority` | choice | `subtree` | `subtree` vs `heading-property` bei Konflikt |
+| `gptel-org-use-system-section` | boolean | `t` | Feature ein/aus |
+| `gptel-org-system-section-property` | string | `"GPTEL_SYSTEM_MESSAGE"` | Begin-Marker |
+| `gptel-org-system-section-end-property` | string | `"GPTEL_SYSTEM_MESSAGE_END"` | End-Marker |
+| `gptel-org-require-system-section-at-eof` | boolean | `t` | Strikte EOF-Prüfung |
+| `gptel-org-system-section-priority` | choice | `subtree` | `subtree` vs `heading-property` bei Konflikt |
 
 **Hilfsbefehle (optional, Phase 1b):**
 
-- `gptel-org-insert-system-subtree` — Template am Dateiende einfügen.
-- `gptel-org-validate-system-subtree` — EOF + genau ein Subtree.
+- `gptel-org-insert-system-section` — Template am Dateiende einfügen.
+- `gptel-org-validate-system-section` — EOF + genau ein Subtree.
 
 **Dokumentation:** README.org Abschnitt Org / reproducible chats; ein Eintrag in
 NEWS.
@@ -260,7 +261,7 @@ NEWS.
 
 ### Unit-/Batch-Tests (Emacs, ohne Netz)
 
-Neues File `test/gptel-org-system-subtree-tests.el` (oder unter `scripts/` wie
+Neues File `test/gptel-org-system-section-tests.el` (oder unter `scripts/` wie
 bestehende Org-Tests im Fork — upstream bevorzugt `test/` sobald Submodule
 genutzt wird):
 
@@ -325,7 +326,7 @@ Was ist 2+2?
 4
 
 * System prompt
-:GPTEL_SYSTEM_SUBTREE:
+:GPTEL_SYSTEM_MESSAGE:
 Du bist ein hilfreicher Assistent für Mathe-Fragen.
 Antworte knapp.
 ```

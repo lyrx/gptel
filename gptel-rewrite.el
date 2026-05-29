@@ -25,6 +25,7 @@
 ;;; Code:
 (require 'gptel-transient)
 (require 'cl-lib)
+(declare-function gptel-org--rewrite-system-for-display "gptel-org")
 
 (defvar eldoc-documentation-functions)
 (defvar diff-entire-buffers)
@@ -137,6 +138,16 @@ the system message) as the value of the `rewrite' key in
 
 You can also customize `gptel-rewrite-directives-hook' to
 dynamically inject a rewrite-specific system message.")
+
+(defun gptel-rewrite--effective-directive ()
+  "Return the system directive shown and used for the current rewrite.
+
+In Org buffers this includes the buffer system-message section (merged with
+`gptel--rewrite-directive'); elsewhere it is `gptel--rewrite-directive'.
+All `gptel-rewrite' UI surfaces must use this so they stay in sync."
+  (if (derived-mode-p 'org-mode)
+      (gptel-org--rewrite-system-for-display)
+    gptel--rewrite-directive))
 
 (defun gptel--rewrite-directive-default ()
   "Generic directive for rewriting or refactoring.
@@ -321,7 +332,8 @@ Provide custom keybindings for cycling, editing, and submitting the
 PROMPT is the prompt string to display.  HISTORY, if provided, is the
 input history list."
   (let* ((rewrite-directive
-          (car-safe (gptel--parse-directive gptel--rewrite-directive 'raw)))
+          (car-safe (gptel--parse-directive
+                     (gptel-rewrite--effective-directive) 'raw)))
          (cb (current-buffer))
          (cycle-prefix (lambda () (interactive)
                          (gptel--read-with-prefix rewrite-directive)
@@ -641,8 +653,18 @@ INFO is the async communication channel for the rewrite request."
 
 By default, gptel uses the directive associated with the `rewrite'
  key in `gptel-directives'.  You can add more rewrite-specific
- directives to `gptel-directives' and pick one from here."
-  [:description gptel-system-prompt--format
+ directives to `gptel-directives' and pick one from here.
+
+In Org buffers with a system-message section, the effective system
+message also includes that section; use \"s\" here to edit only the
+rewrite-specific part (`gptel--rewrite-directive')."
+  [:description
+   (lambda ()
+     (if (derived-mode-p 'org-mode)
+         (gptel--describe-directive
+          (gptel-rewrite--effective-directive)
+          (max (- (window-width) 12) 14) "⮐ ")
+       (gptel-system-prompt--format)))
    [(gptel--suffix-rewrite-directive)]
    [(gptel--infix-variable-scope)]]
    [:class transient-column
@@ -660,7 +682,8 @@ By default, gptel uses the directive associated with the `rewrite'
   [:description
    (lambda ()
      (gptel--describe-directive
-      gptel--rewrite-directive (max (- (window-width) 14) 20) " "))
+      (gptel-rewrite--effective-directive)
+      (max (- (window-width) 14) 20) " "))
    [""
     (gptel-preset
      :transient t
