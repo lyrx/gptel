@@ -53,7 +53,6 @@
 (declare-function gptel-backend-name "gptel-request")
 (declare-function gptel--parse-buffer "gptel-request")
 (declare-function gptel--parse-directive "gptel-request")
-(declare-function gptel--log "gptel-request")
 (declare-function gptel--with-buffer-copy "gptel-request")
 (declare-function gptel--file-binary-p "gptel-request")
 (declare-function gptel--get-buffer-bounds "gptel")
@@ -67,11 +66,6 @@
 (declare-function org-at-heading-p "org")
 (declare-function org-get-heading "org")
 (declare-function org-at-heading-p "org")
-(declare-function org-map-entries "org")
-(declare-function org-back-to-heading "org")
-(declare-function org-end-of-subtree "org")
-(declare-function org-element-at-point "org-element")
-(declare-function org-element-property "org-element")
 
 ;; Bundle `org-element-lineage-map' if it's not available (for Org 9.67 or older)
 (eval-and-compile
@@ -200,159 +194,8 @@ on a line by themselves, separated from surrounding text."
   (concat "\\(?:" org-link-bracket-re "\\|" org-link-angle-re "\\)")
   "Link regex for `gptel-mode' in Org mode.")
 
-(defcustom gptel-org-use-system-subtree t
-  "When non-nil, use a system-message Org subtree at the end of the buffer.
-
-See `gptel-org-system-subtree-property'."
-  :group 'gptel
-  :type 'boolean)
-
-(defcustom gptel-org-system-subtree-property "GPTEL_SYSTEM_MESSAGE_SUBTREE"
-  "Org property marking a heading whose subtree is the system message.
-
-The subtree must be at the end of the buffer (see
-`gptel-org-require-system-subtree-at-eof').  Only the first such
-heading in the file is used."
-  :group 'gptel
-  :type 'string)
-
-(defcustom gptel-org-require-system-subtree-at-eof t
-  "When non-nil, ignore a system-message subtree not at the end of the buffer."
-  :group 'gptel
-  :type 'boolean)
-
 
 ;;; Setting context and creating queries
-(defun gptel-org--only-whitespace-after-p (pos)
-  "Return non-nil if POS is followed only by whitespace until `point-max'."
-  (save-excursion
-    (goto-char pos)
-    (skip-chars-forward " \t\n\r")
-    (= (point) (point-max))))
-
-(defun gptel-org--heading-at-point-subtree-bounds ()
-  "Return (BEG . END) for the Org subtree of the heading at point."
-  (org-back-to-heading t)
-  (let ((beg (point)))
-    (cons beg (progn (org-end-of-subtree t t) (point)))))
-
-(defun gptel-org--system-subtree-property-regexp ()
-  "Return a regexp matching the system-subtree property line."
-  (format "^:%s:\\s-*"
-          (regexp-quote gptel-org-system-subtree-property)))
-
-(defun gptel-org--system-subtree-marked-p ()
-  "Return non-nil if the heading at point is a system-message subtree."
-  (or (org-entry-get nil gptel-org-system-subtree-property)
-      (let ((elt (org-element-at-point)))
-        (and elt
-             (org-element-property
-              (intern gptel-org-system-subtree-property) elt)))
-      (save-excursion
-        (org-back-to-heading t)
-        (let ((end (progn (org-end-of-subtree t t) (point))))
-          (org-back-to-heading t)
-          (re-search-forward (gptel-org--system-subtree-property-regexp)
-                             end t)))))
-
-(defun gptel-org--system-subtree-bounds ()
-  "Return (BEG . END) of the first system-message subtree, or nil.
-
-BEG and END span the marked heading and its contents.  Warn if more
-than one subtree is marked."
-  (when gptel-org-use-system-subtree
-    (save-excursion
-      (save-restriction
-        (widen)
-        (let (found extra)
-          (org-map-entries
-           (lambda ()
-             (when (gptel-org--system-subtree-marked-p)
-               (let ((bounds (gptel-org--heading-at-point-subtree-bounds)))
-                 (if found
-                     (setq extra t)
-                   (setq found bounds)))))
-           nil)
-          (when extra
-            (display-warning
-             'gptel
-             (format "More than one %s heading; using the first"
-                     gptel-org-system-subtree-property)))
-          (when found
-            (if (and gptel-org-require-system-subtree-at-eof
-                     (not (gptel-org--only-whitespace-after-p (cdr found))))
-                (progn
-                  (display-warning
-                   'gptel
-                   "System-message subtree is not at end of buffer; ignoring")
-                  nil)
-              found)))))))
-
-(defun gptel-org--system-subtree-message (&optional bounds)
-  "Return the system-message text for system subtree BOUNDS."
-  (setq bounds (or bounds (gptel-org--system-subtree-bounds)))
-  (when bounds
-    (let ((org-buf (current-buffer)))
-      (gptel--with-buffer-copy org-buf (car bounds) (cdr bounds)
-        (goto-char (point-min))
-        (when (org-at-heading-p)
-          (delete-region (point) (progn (forward-line 1) (point))))
-        (when (looking-at-p (gptel-org--system-subtree-property-regexp))
-          (delete-region (point) (progn (forward-line 1) (point))))
-        (when-let* ((gptel-org-ignore-elements
-                     (buffer-local-value 'gptel-org-ignore-elements org-buf)))
-          (gptel-org--strip-elements))
-        (gptel-org--strip-block-headers)
-        (string-trim (buffer-string))))))
-
-(defun gptel-org--apply-buffer-system-message ()
-  "If this buffer has a system-message subtree, set `gptel--system-message'.
-
-Signal an error if point is inside that subtree.  Return t when the
-subtree was used, nil to keep the existing system message."
-  (when-let* ((bounds (gptel-org--system-subtree-bounds)))
-    (let ((pt (point))
-          (beg (car bounds))
-          (end (cdr bounds)))
-      (when (and (>= pt beg) (< pt end))
-        (user-error
-         "Cursor is inside the system-message subtree; move above it"))
-      (let ((text (gptel-org--system-subtree-message bounds)))
-        (setq gptel--system-message text)
-        (message "gptel: System message from buffer subtree (%d chars)"
-                 (length text))
-        (when gptel-log-level
-          (gptel--log (format "System message from Org subtree in %s:\n%s"
-                              (buffer-name (current-buffer))
-                              text)
-                      "system-subtree"
-                      t))
-        t))))
-
-(defun gptel-org--system-subtree-message-for-send ()
-  "Return the buffer system-message subtree text when one is defined.
-
-Signal an error if point is inside the subtree.  For use in tests."
-  (when (gptel-org--apply-buffer-system-message)
-    gptel--system-message))
-
-(defun gptel-org--cap-prompt-end-for-system-subtree (prompt-end)
-  "Adjust PROMPT-END so a trailing system-message subtree is not sent."
-  (when-let* ((bounds (gptel-org--system-subtree-bounds)))
-    (let ((beg (car bounds))
-          (end (cdr bounds)))
-      (when (use-region-p)
-        (unless (or (>= (region-beginning) end) (<= (region-end) beg))
-          (user-error "Region overlaps system-message subtree")))
-      (unless (use-region-p)
-        (let ((pt (or prompt-end (point))))
-          (when (and (>= pt beg) (< pt end))
-            (user-error
-             "Cursor is inside the system-message subtree; move above it"))
-          (when (< pt beg)
-            (setq prompt-end (min pt beg)))))))
-  prompt-end)
-
 (defun gptel-org--get-topic-start ()
   "If a conversation topic is set, return it."
   (when (org-entry-get (point) "GPTEL_TOPIC" 'inherit)
@@ -392,7 +235,6 @@ depend on the value of `gptel-org-branching-context', which see."
   (when (use-region-p)
     (narrow-to-region (region-beginning) (region-end))
     (setq prompt-end (point-max)))
-  (setq prompt-end (gptel-org--cap-prompt-end-for-system-subtree prompt-end))
   (goto-char (or prompt-end (setq prompt-end (point))))
   (let ((topic-start (gptel-org--get-topic-start)))
     (when topic-start
@@ -658,34 +500,24 @@ parameters.
 
 ARGS are the original function call arguments."
   (if (derived-mode-p 'org-mode)
-      (let ((from-subtree (gptel-org--apply-buffer-system-message)))
-        (pcase-let ((`( ,prop-preset ,prop-system ,prop-backend ,prop-model
-                        ,prop-temp ,prop-tokens ,prop-num ,prop-tools)
-                     (gptel-org--entry-properties)))
-          (setq gptel--preset (or prop-preset gptel--preset)
-                gptel-backend (or prop-backend gptel-backend)
-                gptel-model (or prop-model gptel-model)
-                gptel-temperature (or prop-temp gptel-temperature)
-                gptel-max-tokens (or prop-tokens gptel-max-tokens)
-                gptel--num-messages-to-send (or prop-num gptel--num-messages-to-send)
-                gptel-tools (or prop-tools gptel-tools))
-          (unless from-subtree
-            (setq gptel--system-message
-                  (or prop-system gptel--system-message)))
-          (apply send-fun args)))
+      (pcase-let ((`( ,gptel--preset ,gptel--system-message ,gptel-backend
+                      ,gptel-model ,gptel-temperature ,gptel-max-tokens
+                      ,gptel--num-messages-to-send ,gptel-tools)
+                   (seq-mapn (lambda (a b) (or a b))
+                             (gptel-org--entry-properties)
+                             (list gptel--preset gptel--system-message gptel-backend
+                                   gptel-model gptel-temperature gptel-max-tokens
+                                   gptel--num-messages-to-send gptel-tools))))
+        (apply send-fun args))
     (apply send-fun args)))
-
-(defun gptel-org--request-with-system-subtree (orig &optional prompt &rest args)
-  "Apply system-message subtree when calling `gptel-request' in Org."
-  (if (derived-mode-p 'org-mode)
-      (progn
-        (gptel-org--apply-buffer-system-message)
-        (apply orig prompt args))
-    (apply orig prompt args)))
 
 (advice-add 'gptel-send :around #'gptel-org--send-with-props)
 (advice-add 'gptel--suffix-send :around #'gptel-org--send-with-props)
-(advice-add 'gptel-request :around #'gptel-org--request-with-system-subtree)
+
+;; ;; NOTE: Basic uses in org-mode are covered by advising gptel-send and
+;; ;; gptel--suffix-send.  For custom commands it might be necessary to advise
+;; ;; gptel-request instead.
+;; (advice-add 'gptel-request :around #'gptel-org--send-with-props)
 
 
 ;;; Saving and restoring state
