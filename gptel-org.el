@@ -245,41 +245,6 @@ This keeps the section at the file end without relying on Org structure."
 
 ;;; Buffer system-message section (plain-text begin/end markers; see defcustoms above)
 
-(defun gptel-org--local-variables-trailer-bounds ()
-  "Return (START . END) of a trailing Local Variables block, or nil."
-  (save-restriction
-    (widen)
-    (save-excursion
-      (goto-char (point-max))
-      (skip-chars-backward " \t\n\r")
-      (when (re-search-backward "^;;\\s-*End:\\s-*$" nil t)
-        (let ((end (line-end-position)))
-          (when (re-search-backward "^;;\\s-*Local Variables:\\s-*$" nil t)
-            (cons (match-beginning 0) end)))))))
-
-(defun gptel-org--delete-gptel-local-variables-trailer ()
-  "Delete a trailing file-local-variables block holding gptel state.
-
-Org buffers persist gptel configuration in properties and optional
-system-message sections; a leftover Local Variables trailer from
-non-Org saves is stale and can break `find-file' when combined with
-`org-mode-hook' hooks that enable `gptel-mode'."
-  (when-let* ((bounds (gptel-org--local-variables-trailer-bounds)))
-    (let ((text (buffer-substring-no-properties (car bounds) (cdr bounds))))
-      (when (string-match-p "gptel" text)
-        (delete-region (car bounds) (cdr bounds))
-        (goto-char (car bounds))
-        (when (and (bolp) (not (bobp))) (delete-char -1))
-        (setq gptel-org--system-section-cache nil)
-        t))))
-
-(defun gptel-org--only-whitespace-after-p (pos)
-  "Return non-nil if POS is followed only by whitespace until `point-max'."
-  (save-excursion
-    (goto-char pos)
-    (skip-chars-forward " \t\n\r")
-    (= (point) (point-max))))
-
 (defun gptel-org--system-section-at-file-end-p (pos)
   "Non-nil if POS is followed only by whitespace or a `Local Variables' trailer."
   (save-excursion
@@ -376,12 +341,21 @@ marker before it.  Results are cached until the buffer is modified."
     (pcase-let ((`(,text-beg . ,text-end)
                  (gptel-org--system-section-content-bounds bounds))
                 (org-buf (current-buffer)))
-      (gptel--with-buffer-copy org-buf text-beg text-end
-        (when-let* ((gptel-org-ignore-elements
-                     (buffer-local-value 'gptel-org-ignore-elements org-buf)))
-          (gptel-org--strip-elements))
-        (gptel-org--strip-block-headers)
-        (string-trim (buffer-string))))))
+      ;; `gptel--with-buffer-copy' creates a temp buffer but never kills it --
+      ;; request code paths reuse and kill it later.  Here we only need the
+      ;; text, so kill the copy ourselves.  Otherwise a pseudo `org-mode'
+      ;; buffer (major-mode set, no keymap installed) leaks on every section
+      ;; parse and later trips `org-install-agenda-files-menu', which signals
+      ;; "(wrong-type-argument keymapp nil)" when the next Org file is opened.
+      (let ((copy (gptel--with-buffer-copy org-buf text-beg text-end
+                    (when-let* ((gptel-org-ignore-elements
+                                 (buffer-local-value 'gptel-org-ignore-elements org-buf)))
+                      (gptel-org--strip-elements))
+                    (gptel-org--strip-block-headers)
+                    (current-buffer))))
+        (unwind-protect
+            (with-current-buffer copy (string-trim (buffer-string)))
+          (when (buffer-live-p copy) (kill-buffer copy)))))))
 
 (defun gptel-org--bounds-overlap-p (a-beg a-end b-beg b-end)
   "Non-nil if ranges [A-BEG,A-END) and [B-BEG,B-END) overlap."
@@ -1034,8 +1008,7 @@ send in queries.  (See `gptel--num-messages-to-send' for the last one.)"
                  (when (and (not (= (marker-position offset-marker) offset))
                             (> attempts 0))
                    (funcall write-bounds (1- attempts)))))))
-     (funcall write-bounds 6)
-     (gptel-org--delete-gptel-local-variables-trailer))))
+     (funcall write-bounds 6))))
 
 
 ;;; Transforming responses
