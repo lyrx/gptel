@@ -130,7 +130,7 @@
   (when (fboundp 'gptel-org--apply-buffer-system-message)
     (let (captured
         (gptel-org-system-section--section
-         (concat ":GPTEL_SYSTEM_MESSAGE: t\nFrom section.\n"
+         (concat ":GPTEL_SYSTEM_MESSAGE_BEGIN: t\nFrom section.\n"
                  ":GPTEL_SYSTEM_MESSAGE_END: t\n")))
     (cl-letf (((symbol-function 'gptel-org--entry-properties)
                (lambda (&optional _pt)

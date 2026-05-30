@@ -70,7 +70,7 @@ Mentalmodell: **oben der Chat, unten die Konfiguration** (System-Prompt).
   `point-max` (ein Emacs-`Local Variables'-Trailer am Dateiende ist erlaubt),
   sonst Warnung und Ignorieren (`gptel-org-require-system-section-at-eof`).
 
-Standard-Marker: `GPTEL_SYSTEM_MESSAGE` (Begin),
+Standard-Marker: `GPTEL_SYSTEM_MESSAGE_BEGIN` (Begin),
 `GPTEL_SYSTEM_MESSAGE_END` (End).
 
 ### Empfohlenes Muster (Org)
@@ -82,7 +82,7 @@ Standard-Marker: `GPTEL_SYSTEM_MESSAGE` (Begin),
 Hallo, erkläre kurz was Org-Mode ist.
 
 * System prompt
-:GPTEL_SYSTEM_MESSAGE: t
+:GPTEL_SYSTEM_MESSAGE_BEGIN: t
 Du bist ein hilfreicher Assistent für Org-Mode-Fragen.
 Antworte auf Deutsch und knapp.
 :GPTEL_SYSTEM_MESSAGE_END: t
@@ -91,13 +91,13 @@ Antworte auf Deutsch und knapp.
 ### Portabel (z. B. Emacs-Lisp, Markdown mit `#`)
 
 ```emacs-lisp
-;; GPTEL_SYSTEM_MESSAGE
+;; GPTEL_SYSTEM_MESSAGE_BEGIN
 You are a helpful assistant.
 ;; GPTEL_SYSTEM_MESSAGE_END
 ```
 
 ```markdown
-# GPTEL_SYSTEM_MESSAGE
+# GPTEL_SYSTEM_MESSAGE_BEGIN
 System prompt text.
 # GPTEL_SYSTEM_MESSAGE_END
 ```
@@ -137,7 +137,7 @@ System prompt text.
 | Option | Default | Bedeutung |
 |--------|---------|-----------|
 | `gptel-org-use-system-section` | `t` | Feature ein/aus |
-| `gptel-org-system-section-property` | `"GPTEL_SYSTEM_MESSAGE"` | Begin-Marker-Name |
+| `gptel-org-system-section-property` | `"GPTEL_SYSTEM_MESSAGE_BEGIN"` | Begin-Marker-Name |
 | `gptel-org-system-section-end-property` | `"GPTEL_SYSTEM_MESSAGE_END"` | End-Marker-Name |
 | `gptel-org-require-system-section-at-eof` | `t` | Nur Leerzeichen nach End-Marker |
 
@@ -261,7 +261,7 @@ Erstelle oder aktualisiere am ENDE dieser Org-Datei eine System-Message-Section
 für gptel mit genau diesem Aufbau:
 
 1. Neue Überschrift der obersten Ebene (z. B. "* System prompt").
-2. Begin-Marker: :GPTEL_SYSTEM_MESSAGE: t
+2. Begin-Marker: :GPTEL_SYSTEM_MESSAGE_BEGIN: t
 3. System-Prompt-Text (mehrzeilig erlaubt).
 4. End-Marker: :GPTEL_SYSTEM_MESSAGE_END: t
 
@@ -282,7 +282,7 @@ lass Struktur und Property-Zeile korrekt.
 ### Kürzere Variante
 
 ```text
-Am Dateiende: "* System prompt", dann :GPTEL_SYSTEM_MESSAGE: t,
+Am Dateiende: "* System prompt", dann :GPTEL_SYSTEM_MESSAGE_BEGIN: t,
 Prompt-Text, dann :GPTEL_SYSTEM_MESSAGE_END: t
 
 [HIER DEIN PROMPT]
@@ -426,7 +426,7 @@ Was ist 2+2?
 4
 
 * System prompt
-:GPTEL_SYSTEM_MESSAGE: t
+:GPTEL_SYSTEM_MESSAGE_BEGIN: t
 Du bist ein Mathe-Tutor. Antworte nur mit dem Ergebnis, ohne Erklärung,
 außer der Nutzer fragt explizit danach.
 :GPTEL_SYSTEM_MESSAGE_END: t

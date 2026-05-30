@@ -217,7 +217,7 @@ structure; see `gptel-org-system-section-property' and
   :group 'gptel
   :type 'boolean)
 
-(defcustom gptel-org-system-section-property "GPTEL_SYSTEM_MESSAGE"
+(defcustom gptel-org-system-section-property "GPTEL_SYSTEM_MESSAGE_BEGIN"
   "Marker name for the start of the system-message section.
 
 Matched at line beginning as an Org property (`:NAME:') or after a comment

@@ -92,7 +92,7 @@ would after a real user edit, without accumulating spurious newlines."
 Formatiere immer so, dass jede Zeile höchstens 80 Zeichen hat.")
 
 (defun gptel-org-rt--section (msg)
-  (concat "** System prompt\n:GPTEL_SYSTEM_MESSAGE: t\n\n"
+  (concat "** System prompt\n:GPTEL_SYSTEM_MESSAGE_BEGIN: t\n\n"
           msg "\n\n:GPTEL_SYSTEM_MESSAGE_END: t\n"))
 
 (defun gptel-org-rt--trailer (&rest extra-lines)
@@ -148,7 +148,7 @@ Formatiere immer so, dass jede Zeile höchstens 80 Zeichen hat.")
     ;; After saving, GPTEL_SYSTEM must be gone and a reopen still uses section.
     (let ((saved (gptel-org-rt--save f)))
       (should-not (string-match-p "GPTEL_SYSTEM:" saved))
-      (should (string-match-p "GPTEL_SYSTEM_MESSAGE:" saved)))
+      (should (string-match-p "GPTEL_SYSTEM_MESSAGE_BEGIN:" saved)))
     (should (string= gptel-org-rt--section-msg
                      (gptel-org-rt--reopen-system f)))))
 
@@ -250,6 +250,22 @@ which only appeared after a section had been parsed in an earlier buffer."
                          gptel--system-message)))))
   (should (null (gptel-org-rt--gptel-temp-buffers))))
 
+(ert-deftest gptel-org-rt-l-dry-run-no-leak ()
+  "Regression: a (dry-run) request on a section buffer leaks no prompt buffer.
+`gptel--realize-query' kills the ` *gptel-prompt*' copy for both real and
+dry-run requests; guard against a future regression of the same class."
+  (let ((f (gptel-org-rt--file
+            "l-dry.org"
+            (concat ":PROPERTIES:\n:GPTEL_BACKEND: Moonshot\n"
+                    ":GPTEL_MODEL: kimi-k2.6\n:END:\n\n"
+                    "* Chat\nHallo, wie geht es?\n\n"
+                    (gptel-org-rt--section gptel-org-rt--section-msg)))))
+    (gptel-org-rt--with-opened f
+      (goto-char (point-min))
+      (re-search-forward "wie geht es?")
+      (gptel-request nil :dry-run t :callback #'ignore))
+    (should (null (gptel-org-rt--gptel-temp-buffers)))))
+
 ;;;; Runner
 
 (defconst gptel-org-rt--names
@@ -263,7 +279,8 @@ which only appeared after a section had been parsed in an earlier buffer."
     gptel-org-rt-h-multiline-system-roundtrip
     gptel-org-rt-i-save-reopen-idempotent
     gptel-org-rt-j-no-leaked-temp-buffer
-    gptel-org-rt-k-many-section-opens-no-error))
+    gptel-org-rt-k-many-section-opens-no-error
+    gptel-org-rt-l-dry-run-no-leak))
 
 ;;;###autoload
 (defun gptel-org-realistic-tests-run ()

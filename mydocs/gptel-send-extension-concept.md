@@ -1,7 +1,7 @@
 # Konzept: System-Message per Subtree am Dateiende (gptel-send)
 
 > **Hinweis:** Maßgeblich für die **Implementierung** ist
-> `mydocs/gptel-send-extension.md` (Begin/End-Marker `GPTEL_SYSTEM_MESSAGE` /
+> `mydocs/gptel-send-extension.md` (Begin/End-Marker `GPTEL_SYSTEM_MESSAGE_BEGIN` /
 > `GPTEL_SYSTEM_MESSAGE_END`, plain-text, keine Org-Baumlogik). Dieses
 > Konzept-Dokument enthält historische Entwürfe; Abschnitte ohne Hinweis können
 > veraltet sein.
@@ -79,7 +79,7 @@ Anforderungen:
 
 ```org
 * System prompt
-:GPTEL_SYSTEM_MESSAGE: t
+:GPTEL_SYSTEM_MESSAGE_BEGIN: t
 Dieser Text ist die System-Message.
 :GPTEL_SYSTEM_MESSAGE_END: t
 ```
@@ -104,7 +104,7 @@ Algorithmus (plain-text, kein `org-map-entries`):
 
 1. `widen`, `goto-char (point-max)`.
 2. Rückwärts: letzte Zeile mit End-Marker `GPTEL_SYSTEM_MESSAGE_END`.
-3. Rückwärts: letzte Zeile mit Begin-Marker `GPTEL_SYSTEM_MESSAGE` davor.
+3. Rückwärts: letzte Zeile mit Begin-Marker `GPTEL_SYSTEM_MESSAGE_BEGIN` davor.
 4. Optional EOF: nur Leerzeichen nach der End-Marker-Zeile
    (`gptel-org-require-system-section-at-eof`).
 
@@ -242,7 +242,7 @@ Org-Property-Muster lässt sich nicht 1:1 übertragen; die **generische API**
 | Option | Typ | Default | Zweck |
 |--------|-----|---------|--------|
 | `gptel-org-use-system-section` | boolean | `t` | Feature ein/aus |
-| `gptel-org-system-section-property` | string | `"GPTEL_SYSTEM_MESSAGE"` | Begin-Marker |
+| `gptel-org-system-section-property` | string | `"GPTEL_SYSTEM_MESSAGE_BEGIN"` | Begin-Marker |
 | `gptel-org-system-section-end-property` | string | `"GPTEL_SYSTEM_MESSAGE_END"` | End-Marker |
 | `gptel-org-require-system-section-at-eof` | boolean | `t` | Strikte EOF-Prüfung |
 | `gptel-org-system-section-priority` | choice | `subtree` | `subtree` vs `heading-property` bei Konflikt |
@@ -326,7 +326,7 @@ Was ist 2+2?
 4
 
 * System prompt
-:GPTEL_SYSTEM_MESSAGE:
+:GPTEL_SYSTEM_MESSAGE_BEGIN:
 Du bist ein hilfreicher Assistent für Mathe-Fragen.
 Antworte knapp.
 ```

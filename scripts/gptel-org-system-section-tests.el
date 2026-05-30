@@ -11,7 +11,7 @@
 (defvar gptel-org-system-section--test-buffer nil
   "Shared Org buffer for section tests (org-mode initialized once).")
 
-(defconst gptel-org-system-section--begin ":GPTEL_SYSTEM_MESSAGE: t\n")
+(defconst gptel-org-system-section--begin ":GPTEL_SYSTEM_MESSAGE_BEGIN: t\n")
 (defconst gptel-org-system-section--end ":GPTEL_SYSTEM_MESSAGE_END: t\n")
 
 (defun gptel-org-system-section--section (body)
@@ -20,7 +20,7 @@
 
 (defun gptel-org-system-section--comment-section (prefix body)
   "Return a section with comment PREFIX (#, ;;, …) before marker names."
-  (concat prefix "GPTEL_SYSTEM_MESSAGE\n" body "\n"
+  (concat prefix "GPTEL_SYSTEM_MESSAGE_BEGIN\n" body "\n"
           prefix "GPTEL_SYSTEM_MESSAGE_END\n"))
 
 (defun gptel-org-system-section--chat-and-section (chat body)
@@ -56,7 +56,7 @@
      (let ((bounds (gptel-org--system-section-bounds)))
        (should bounds)
        (goto-char (car bounds))
-       (should (looking-at ":GPTEL_SYSTEM_MESSAGE:"))))))
+       (should (looking-at ":GPTEL_SYSTEM_MESSAGE_BEGIN:"))))))
 
 (ert-deftest gptel-org-system-section-message-text ()
   (gptel-org-system-section--with-org-buffer gptel-org-system-section--standard-buffer
