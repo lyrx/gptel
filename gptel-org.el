@@ -34,7 +34,7 @@
 (defvar org-entry-property-inherited-from)
 (defvar gptel-backend)
 (defvar gptel--known-backends)
-(defvar gptel--system-message)
+(defvar gptel-system-prompt)
 (defvar gptel-model)
 (defvar gptel-temperature)
 (defvar gptel-max-tokens)
@@ -375,8 +375,8 @@ ignore any unrelated active region (e.g. from Isearch)."
           (cons rb re))))))
 
 (defun gptel-org--use-section-system-message (text)
-  "Set `gptel--system-message' to section TEXT, log it, and return t."
-  (setq gptel--system-message text)
+  "Set `gptel-system-prompt' to section TEXT, log it, and return t."
+  (setq gptel-system-prompt text)
   (message "gptel: System message from buffer section (%d chars)" (length text))
   (when gptel-log-level
     (gptel--log (format "System message from buffer section in %s:\n%s"
@@ -385,7 +385,7 @@ ignore any unrelated active region (e.g. from Isearch)."
   t)
 
 (defun gptel-org--apply-buffer-system-message ()
-  "If this buffer has a system-message section, set `gptel--system-message'.
+  "If this buffer has a system-message section, set `gptel-system-prompt'.
 
 Signal an error if point is inside the section.  Overlap with a rewrite
 region is handled separately in `gptel-org--rewrite-request-system'; for
@@ -404,7 +404,7 @@ was used, nil otherwise."
 
 Signal an error if point is inside the section.  For use in tests."
   (when (gptel-org--apply-buffer-system-message)
-    gptel--system-message))
+    gptel-system-prompt))
 
 (defun gptel-org--cap-prompt-end-for-system-section (prompt-end)
   "Adjust PROMPT-END so a trailing system-message section is not sent."
@@ -730,7 +730,7 @@ Search between BEG and END."
   "Return the system directive to use for one send in Org mode.
 
 ORG-SYSTEM is the GPTEL_SYSTEM entry string (already unescaped) or nil.
-BUF-DIRECTIVE is `gptel--system-message'.
+BUF-DIRECTIVE is `gptel-system-prompt'.
 
 When both are set but differ, prefer the side that changed since the last
 send (`gptel-org--send-system-state'); otherwise prefer ORG-SYSTEM."
@@ -767,7 +767,7 @@ Otherwise the heading property and buffer prompt are merged via
 
 ARGS are the original function call arguments."
   (if (derived-mode-p 'org-mode)
-      (let* ((buf-system gptel--system-message)
+      (let* ((buf-system gptel-system-prompt)
              (from-section (gptel-org--apply-buffer-system-message)))
         (pcase-let ((`( ,prop-preset ,prop-system ,prop-backend ,prop-model
                         ,prop-temp ,prop-tokens ,prop-num ,prop-tools)
@@ -780,7 +780,7 @@ ARGS are the original function call arguments."
                 gptel--num-messages-to-send (or prop-num gptel--num-messages-to-send)
                 gptel-tools (or prop-tools gptel-tools))
           (unless from-section
-            (setq gptel--system-message
+            (setq gptel-system-prompt
                   (gptel-org--merge-system-message prop-system buf-system)))
           (apply send-fun args)))
     (apply send-fun args)))
@@ -788,9 +788,9 @@ ARGS are the original function call arguments."
 (defun gptel-org--system-message-with-rewrite-directive (rewrite-directive
                                                          &optional section-text)
   "Merge SECTION-TEXT or buffer system message with REWRITE-DIRECTIVE.
-SECTION-TEXT defaults to `gptel--system-message'.  Used for `gptel-rewrite'."
+SECTION-TEXT defaults to `gptel-system-prompt'.  Used for `gptel-rewrite'."
   (let ((buffer-msg (or section-text
-                        (car (gptel--parse-directive gptel--system-message 'raw))))
+                        (car (gptel--parse-directive gptel-system-prompt 'raw))))
         (rewrite-msg (car (gptel--parse-directive rewrite-directive 'raw))))
     (cond
      ((and buffer-msg rewrite-msg (not (string-empty-p buffer-msg)))
@@ -809,7 +809,7 @@ TARGET-BOUNDS is (BEG . END) of the rewrite region, or nil."
 (defun gptel-org--rewrite-request-system (&optional announce)
   "Return the :system value for `gptel-rewrite' in the current Org buffer.
 
-When ANNOUNCE is non-nil, set `gptel--system-message' from the section and
+When ANNOUNCE is non-nil, set `gptel-system-prompt' from the section and
 show the usual log message.  Return nil when only `gptel--rewrite-directive'
 should be used (no section or rewrite region overlaps the section)."
   (when (and gptel-org-use-system-section (derived-mode-p 'org-mode))
@@ -908,10 +908,10 @@ should be used (no section or rewrite region overlaps the section)."
                  '(gptel presets)
                  (format "Could not activate gptel preset `%s' in buffer \"%s\""
                          preset (buffer-name)))))
-            (when system (setq-local gptel--system-message system))
+            (when system (setq-local gptel-system-prompt system))
             (when-let* ((section (and gptel-org-use-system-section
                                       (gptel-org--system-section-message))))
-              (setq-local gptel--system-message section))
+              (setq-local gptel-system-prompt section))
             (if backend (setq-local gptel-backend backend)
               (message
                (substitute-command-keys
@@ -943,6 +943,7 @@ gptel model and backend names, the system message, active tools, the
 response temperature, max tokens and number of conversation turns to
 send in queries.  (See `gptel--num-messages-to-send' for the last one.)"
   (interactive (list (point) t))
+  (require 'gptel)
   (let ((preset-spec (and gptel--preset (gptel-get-preset gptel--preset))))
     (if preset-spec
         (org-entry-put pt "GPTEL_PRESET" (gptel--to-string gptel--preset))
@@ -964,7 +965,7 @@ send in queries.  (See `gptel--num-messages-to-send' for the last one.)"
                            (gptel-org--system-section-message))))
         ;; The buffer section is authoritative; drop stale GPTEL_SYSTEM.
         (org-entry-delete pt "GPTEL_SYSTEM")
-      (let ((parsed (car-safe (gptel--parse-directive gptel--system-message))))
+      (let ((parsed (car-safe (gptel--parse-directive gptel-system-prompt))))
         (if (gptel--preset-mismatch-value preset-spec :system parsed)
             (when parsed
               (org-entry-put pt "GPTEL_SYSTEM"
