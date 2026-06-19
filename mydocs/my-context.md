@@ -108,6 +108,8 @@ nicht eigenmächtig gefixt).
 - `scripts/gptel-org-merge-tests.el`
   Run: `EMACS=… $EMACS --batch -Q -L . -l scripts/gptel-org-merge-tests.el
   -f gptel-org-merge-tests-run`
+- `scripts/run-gptel-org-merge-regression.sh` — Parent vs. Working Tree
+  (alte `gptel-org.el` muss scheitern, aktuelle Datei muss passen).
 - Voller Recompile: `make force` (nutzt automatisch den lokalen Build).
 - Verifikationsprinzip: Tests müssen den Bug fangen. Belegt: gegen
   Vor-Fix-Stand `a942c92` werden D/E/H/J/K rot, mit Fix alle grün.
@@ -116,15 +118,49 @@ nicht eigenmächtig gefixt).
   läuft nicht. Im Harness Buffer vor dem Speichern als modifiziert
   markieren (ohne Inhaltsänderung, sonst Idempotenz-Test bricht).
 
-## Upstream-Merge (Stand dieses Chats)
+## Upstream-Merges
 
-- `git merge --no-commit --no-ff origin/master` durchgeführt:
-  **konfliktfrei**, 8 Upstream-Commits integriert (u.a.
-  `f342b30 Copy tab-width into the prompt buffer`, neue Gemini-Modelle,
-  Bedrock-System-Prompt/Tool-Caching, OAuth gpt-5.5).
-- Eigener Code intakt: Leak-Fix, Rename, keine Trailer-Löschung.
-- Merge war **vorbereitet, nicht committet** → User schließt mit
-  `git commit` ab (oder `git merge --abort`).
+Chronologie der `origin/master`-Integrationen in den Fork (`master`).
+Remote heißt upstream-seitig `master` (kein `main`).
+
+### Merge 1 — `6dac86d` (vorheriger Chat)
+
+- Befehl: `git merge origin/master` (konfliktfrei).
+- **8 Upstream-Commits** integriert, u. a.:
+  - `f342b30` gptel-org: Copy tab-width into the prompt buffer
+  - `4817e6c` gptel-bedrock: System-Prompt- und Tool-Caching
+  - Gemini 3.5-flash, OAuth gpt-5.5, Tool-Call-Reject vor Inspektion
+- Eigener Code intakt: Leak-Fix, Marker-Rename, keine Trailer-Löschung.
+
+### Merge 2 — `689848e` (19. Jun 2026)
+
+- Befehl: `git fetch origin` + `git merge origin/master`.
+- **15 Upstream-Commits** (`f342b30..983cb1f`), Schwerpunkte:
+  - `c35b7d8` Umbenennung `gptel--system-message` → `gptel-system-prompt`
+  - Claude Opus 4.8, Claude Fable, Copilot-Modelle
+  - `gptel-request`: vereinheitlichtes Error-Handling
+  - `gptel-rewrite`: Reasoning-Buffer-Fix
+  - Tool-Call-Anzeige auf 256 Zeichen gekürzt
+- **1 Konflikt** in `gptel-org.el` (`gptel-org--send-with-props`,
+  `gptel-org--restore-state`, `gptel-org-set-properties`):
+  System-Section-Logik und Merge-Helper **behalten**, Variablen auf
+  `gptel-system-prompt` umgestellt (Upstream-`seq-mapn`-Variante nicht
+  blind übernommen).
+- Merge-Commit: `689848e` — *Merge origin/master into master*.
+- Stand danach: lokaler `master` **19 Commits** vor `origin/master`.
+
+### Verifikation nach Merge 2
+
+Alle grün mit `/home/alex/git/clones/emacs/src/emacs`:
+
+- `make force`
+- `scripts/run-gptel-org-system-section-tests.sh` (29/29)
+- `scripts/run-gptel-org-realistic-tests.sh` (12/12)
+- `scripts/gptel-org-merge-tests.el` (`gptel-org-merge-tests-run`)
+- `scripts/run-gptel-org-merge-regression.sh` (alte `gptel-org.el` fail,
+  Working Tree pass)
+- Upstream-Submodule `test/`: 147 ERT (144 pass, 3 skip) — `make test`
+  braucht explizites `EMACS=…` (Binary nicht im PATH).
 
 ## Anthropic-Modelle
 
