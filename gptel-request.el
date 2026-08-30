@@ -118,26 +118,14 @@ This only affects requests originating from Org mode buffers."
   (if (memq system-type '(windows-nt ms-dos)) #x6ffe 130000)
   "Size threshold for using file input with Curl.
 
-Specifies the size threshold for when to use a temporary file to pass data to
-Curl in gptel queries.  If the size of the data to be sent exceeds this
-threshold, the data is written to a temporary file and passed to Curl using the
-`--data-binary' option with a file reference.  Otherwise, the data is passed
-directly as a command-line argument.
+Specifies the size threshold for when to use a temporary file to pass
+data to Curl in gptel queries.  If the size of the data to be sent in
+bytes exceeds this threshold, the data is written to a temporary file
+and passed to Curl using the `--data-binary' option with a file
+reference.  Otherwise, the data is passed directly as a command-line
+argument.
 
-The value is an integer representing the number of bytes.
-
-Adjusting this value may be necessary depending on the environment
-and the typical size of the data being sent in gptel queries.
-A larger value may improve performance by avoiding the overhead of creating
-temporary files for small data payloads, while a smaller value may be needed
-if the command-line argument size is limited by the operating system.
-
-The default of #x8000 for windows comes from Microsoft documentation
-located here:
-https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessa
-
-It is set to (#x8000 - #x1000 - 2) to account for other (non-data) Curl
-command line arguments."
+The default of #x8000 on Windows comes from Microsoft's documentation."
   :type 'natnum)
 
 (make-obsolete-variable
@@ -170,11 +158,11 @@ to send the output of shell commands to the LLM.
 
 Transform functions can be synchronous or asynchronous.
 
-Synchronous hook functions must accept zero or one argument: the INFO
-plist for the current request.
+Synchronous hook functions must accept zero or one argument: the state
+ machine (see `gptel-fsm') for the current request.
 
 Asynchronous hook functions must accept two arguments: a callback to
-call after the transformation is complete, and the INFO plist for the
+call after the transformation is complete, and the state machine for the
 current request.
 
 Note that while this set of handlers can certainly be set with a global
@@ -855,7 +843,7 @@ when including context from these major modes.")
         :false-object :json-false)
     (require 'json)
     (defvar json-object-type)
-    (declare-function json-read-from-string "json" ())
+    (declare-function json-read-from-string "json" (string))
     `(let ((json-object-type 'plist))
       (json-read-from-string ,str))))
 
@@ -1060,7 +1048,10 @@ MODE-SYM is typically a major-mode symbol."
 ;; TODO: Handle and return HTTP errors
 (cl-defun gptel--url-retrieve (url &key method data headers
                                    (content-type "application/json"))
-  "Retrieve URL synchronously with METHOD, DATA and HEADERS."
+  "Retrieve URL synchronously with METHOD, DATA and HEADERS.
+
+CONTENT-TYPE (optional) is the MIME type of the request body,
+defaults to \"application/json\"."
   (declare (indent 1))
   (let ((url-request-method (if (eq method 'post) "POST" "GET"))
         (url-request-data
@@ -1164,6 +1155,7 @@ non-whitespace content on its line."
   (if (stringp gptel-use-curl) gptel-use-curl "curl"))
 
 (defun gptel--transform-add-context (callback fsm)
+  "Run CALLBACK, adding gptel's context to the request data of FSM."
   (if (and gptel-use-context gptel-context)
       (gptel-context--wrap callback (plist-get (gptel-fsm-info fsm) :data))
     (funcall callback)))
@@ -1901,16 +1893,17 @@ MACHINE is an instance of `gptel-fsm'"
   ;; Reset some flags in info.  This is necessary when reusing fsm's context for
   ;; a second network request: gptel tests for the presence of these flags to
   ;; handle state transitions.  (NOTE: Don't add :uuid to this.)
-  (let ((info (gptel-fsm-info fsm)))
+  (let ((req-info (gptel-fsm-info fsm)))
     (dolist (key '(:tool-result :tool-use :error :http-status :reasoning :tokens))
-      (when (plist-get info key)
-        (plist-put info key nil))))
-  (funcall
-   (if gptel-use-curl
-       #'gptel-curl-get-response
-     #'gptel--url-get-response)
-   fsm)
-  (run-hooks 'gptel-post-request-hook))
+      (when (plist-get req-info key)
+        (plist-put req-info key nil)))
+    (funcall
+     (if gptel-use-curl
+         #'gptel-curl-get-response
+       #'gptel--url-get-response)
+     fsm)
+    (with-current-buffer (plist-get req-info :buffer)
+      (run-hooks 'gptel-post-request-hook))))
 
 (defun gptel--process-tool-call (fsm tool-spec tool-call result)
   "Add tool RESULT to a TOOL-CALL and transition FSM if required.
@@ -2032,11 +2025,17 @@ callback (for the user), and transition the request state."
 ;; Predicates used to find the next state to transition to, see
 ;; `gptel-request--transitions'.
 
-(defun gptel--error-p (info) (plist-get info :error))
+(defun gptel--error-p (info)
+  "Return non-nil if INFO contains an error."
+  (plist-get info :error))
 
-(defun gptel--tool-use-p (info) (plist-get info :tool-use))
+(defun gptel--tool-use-p (info)
+  "Return non-nil if INFO contains pending tool calls."
+  (plist-get info :tool-use))
 
-(defun gptel--tool-result-p (info) (plist-get info :tool-result))
+(defun gptel--tool-result-p (info)
+  "Return non-nil if INFO contains tool results."
+  (plist-get info :tool-result))
 
 
 ;;; Send gptel requests
@@ -2234,6 +2233,7 @@ be used to rerun or continue the request at a later time."
            ((markerp position) position)
            ((integerp position)
             (set-marker (make-marker) position buffer))))
+         (gptel-system-prompt system) ;Required for copying into the prompt buffer
          (gptel--schema schema)
          (prompt-buffer
           (cond                       ;prompt from buffer or explicitly supplied
@@ -2252,16 +2252,21 @@ be used to rerun or continue the request at a later time."
               (gptel--parse-list-and-insert prompt)
               (setq major-mode 'fundamental-mode) ;Avoid mode-specific behavior
               (current-buffer)))))
-         (system-list (gptel--parse-directive system 'raw)) ;eval function-valued system prompts
          (info (list :data prompt-buffer
                      :buffer buffer
                      :position start-marker)))
     (when transforms (plist-put info :transforms transforms))
-    (with-current-buffer prompt-buffer
-      (setq gptel-system-prompt         ;guaranteed to be buffer-local
-            ;; Retain single-part system messages as strings to avoid surprises
-            ;; when applying presets
-            (if (cdr system-list) system-list (car system-list))))
+    ;; Evaluate function valued system prompts in the request buffer, but then
+    ;; set it in the prompt construction buffer
+    (when-let* ((system (buffer-local-value 'gptel-system-prompt prompt-buffer))
+                ((functionp system)))
+      (let ((system-list (with-current-buffer buffer
+                           (gptel--parse-directive system 'raw))))
+        (with-current-buffer prompt-buffer ;and then set the result in the prompt buffer
+          (setq gptel-system-prompt        ;guaranteed to be buffer-local
+                ;; Retain single-part system messages as strings to avoid surprises
+                ;; when applying presets
+                (if (cdr system-list) system-list (car system-list))))))
     (when stream (plist-put info :stream stream))
     ;; This context should not be confused with the context aggregation context!
     (when callback (plist-put info :callback callback))
@@ -2506,7 +2511,7 @@ or
   (list `(:text ,(buffer-substring-no-properties
                   beg end))))
 
-(declare-function markdown-link-at-pos "markdown-mode")
+(declare-function markdown-link-at-pos "ext:markdown-mode")
 (declare-function mailcap-file-name-to-mime-type "mailcap")
 
 (defsubst gptel-markdown--validate-link (link)
@@ -2613,12 +2618,14 @@ PROMPTS is the plist of previous user queries and LLM responses.")
 
 If SHOOSH is true, don't issue a warning."
   (unless backend
+    (setq gptel-backend
+          (or (cdar gptel--known-backends) ;First available backend
+              (gptel-make-openai "ChatGPT" :key 'gptel-api-key :stream t))
+          backend gptel-backend)
     (unless shoosh
       (display-warning
-       'gptel "No gptel-backend defined: defaulting to ChatGPT"))
-    (setq gptel-backend
-          (gptel-make-openai "ChatGPT" :key 'gptel-api-key :stream t)
-          backend gptel-backend))
+       'gptel (format "No gptel-backend defined: defaulting to %s"
+                      (gptel-backend-name gptel-backend)))))
   (let ((available (gptel-backend-models backend)))
     (when (stringp model)
       (unless shoosh
@@ -2637,7 +2644,7 @@ If SHOOSH is true, don't issue a warning."
            (format (concat "Preferred `gptel-model' \"%s\" not"
                            "supported in \"%s\", using \"%s\" instead")
                    model (gptel-backend-name backend) fallback)))
-        (setq-local gptel-model fallback)))))
+        (setq gptel-model fallback)))))
 
 
 ;;; url-retrieve response handling
@@ -3019,6 +3026,9 @@ PROCESS and _STATUS are process parameters."
     (kill-buffer proc-buf)))
 
 (defun gptel-curl--stream-filter (process output)
+  "Process OUTPUT from a Curl PROCESS for gptel.
+
+Run the response callback with any completed chunks in OUTPUT."
   (let* ((fsm (car (alist-get process gptel--request-alist)))
          (proc-info (gptel-fsm-info fsm))
          (callback (or (plist-get proc-info :callback)

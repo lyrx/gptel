@@ -4,15 +4,20 @@
 
 ** Breaking changes
 
+- The Github Models setup instructions have been removed from the
+  README, and the Github Models mentions in gptel.el's commentary
+  header removed.  GitHub Models was fully retired on 2026-07-30 and
+  its API is no longer available.
+
 - The models =deepseek-chat= and =deepseek-reasoner= have been
   removed from the default list of Deepseek models.  These models are
   either deprecated or no longer available.
 
 - The models =gptel-5-1=, =gpt-5.1-codex=, =gpt-5.1-codex-max=,
   =gpt-5.1-codex-mini=, =gpt-5.2=, =gpt-5.2-codex=, =claude-sonnet-4=,
-  =gemini-3-pro-preview= and =grok-code-fast-1= have been removed from
-  the default list of Copilot models. These models are either deprecated
-  or no longer available.
+  =gemini-2.5-pro=, =gemini-3-pro-preview=, =gemini-3-flash-preview= and
+  =grok-code-fast-1= have been removed from the default list of Copilot
+  models. These models are either deprecated or no longer available.
 
 - The models =claude-3-7-sonnet-20250219=, =claude-3-5-sonnet-20241022=,
   =claude-3-5-sonnet-20240620=, =claude-3-5-haiku-20241022=,
@@ -58,27 +63,39 @@
 
 ** New models and backends
 
-- Bedrock backend: Add support for =claude-opus-4-7= and
-  =claude-opus-4-8=.
+- Bedrock backend: Add support for =claude-opus-4-7=, =claude-opus-4-8=,
+  =claude-opus-4-9=, =claude-opus-5=, =claude-haiku-4-5= and
+  =claude-fable-5=.
 
 - Anthropic backend: Add support for =claude-sonnet-5=,
-  =claude-opus-4-8= and =claude-fable-5=.
+  =claude-opus-4-8=, =claude-opus-4-9=, =claude-opus-5= and
+  =claude-fable-5=.
 
-- GitHub Copilot backend: Add support for =gemini-3.6-flash=,
-  =gemini-3.5-flash=,
-  =claude-opus-4.8=, =claude-sonnet-5= and =claude-fable-5=.
+- GitHub Copilot backend: Add support for =gemini-3.7-flash=,
+  =gemini-3.6-flash=, =gemini-3.5-flash=, =gpt-5.6-sol=,
+  =gpt-5.6-terra=, =gpt-5.6-luna=, =claude-opus-4.8=, =claude-sonnet-5=,
+  =claude-opus-5= and =claude-fable-5=.
 
-- Gemini backend: Add support for =gemini-3.6-flash=,
-  =gemini-3.5-flash=, =gemini-3.5-flash-lite=,
+- Gemini backend: Add support for =gemini-3.7-flash=,
+  =gemini-3.6-flash=, =gemini-3.5-flash=, =gemini-3.5-flash-lite=,
   =gemini-3.1-flash-lite= and deprecate the preview version.
 
 - OpenAI backend: Add support for =gpt-5.6-sol=, =gpt-5.6-terra= and
   =gpt-5.6-luna=.
 
+- Deepseek backend: Add support for =deepseek-v4-flash-vision-exp=.
+
 - xAI backend: Add support for =grok-4.3=, =grok-build-0.1= and
   =grok-4.5=.
 
 ** New features and UI changes
+
+- gptel-rewrite is now available as an (inline) preset in addition to a
+  command.  Using the =@gptel-rewrite= cookie in a prompt will cause the
+  prompt text before the cookie to be replaced with the response, with
+  the rewrite instructions read from the text following the cookie.
+  This is mostly useful when prompting from the minibuffer with a region
+  active.
 
 - The gptel tool's =:include= slot and the global option
   ~gptel-include-tool-results~ now also accept the symbol =call=: when
@@ -92,9 +109,20 @@
   gptel variable (~gptel--system-message~, now obsolete), or defining a
   mapping in ~gptel-directives~ and picking from the list interactively.
 
+- ~gptel-send~ now respects the value of the =GPTEL_PRESET= Org property
+  in Org mode.  This property can specify a list of presets
+  (space-separated) that will be applied in sequence when calling
+  ~gptel-send~ from inside the entry to which it applies.  For example,
+  a value of
+  #+begin_src org
+  :GPTEL_PRESET: webtools short-answers
+  #+end_src
+  will cause the presets "webtools" and "short-answers" to be applied,
+  assuming they exist.
+
 - OpenAI subscription support: gptel now supports authentication with
   OpenAI ChatGPT Plus/Pro accounts.  This allows using the ChatGPT Codex
-  endpoint without an API key.  See =gptel-make-openai-oauth= and the
+  endpoint without an API key.  See ~gptel-make-openai-oauth~ and the
   README for details.
 
 - When running ~gptel-rewrite~, reasoning text was previously always
@@ -117,6 +145,10 @@
 - The Anthropic backend now supports tool calls and structured (JSON)
   outputs simultaenously in a request.  Previously the two were
   incompatible.
+
+- You can now specify (programmatically) which MCP tools to add when
+  starting MCP servers.  Previously all tools provided by an MCP server
+  would be added automatically.  See ~gptel-mcp-connect~ for details.
 
 ** Notable bug fixes
 
@@ -398,6 +430,9 @@
 
   Support for =gptel-send= in Term/Ansi-Term and Eat buffers is not
   yet available but planned.
+
+- =gptel-mcp-connect= now supports selective activation of tools for
+  each MCP server.
 
 ** Notable bug fixes
 
